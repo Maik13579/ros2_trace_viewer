@@ -2,6 +2,7 @@
 from dataclasses import replace
 from .filters import JOIN
 from .topics import callback_scope, owner_scope
+from .service_names import is_default_service
 
 
 def service_data(db, filters, trace_end, offset=0, limit=50, service=None):
@@ -20,7 +21,7 @@ def service_data(db, filters, trace_end, offset=0, limit=50, service=None):
         item = dict(row); item['created_ns'] = str(item['created_ns'])
         endpoints.setdefault(item['name'], []).append(item)
     candidates = set(metrics)
-    strict = bool(callback_scope(replace(filters, services=())) or filters.topics)
+    strict = callback_scope(filters)
     if not strict:
         scope, values = owner_scope(filters, 'ep.pid', 'ep.node_id')
         if filters.search:
@@ -31,6 +32,8 @@ def service_data(db, filters, trace_end, offset=0, limit=50, service=None):
             WHERE {scope} AND ep.created_ns<=?''', [*values, filters.end])}
     if filters.services:
         candidates &= set(filters.services)
+    if filters.exclude_default_services:
+        candidates = {name for name in candidates if not is_default_service(name)}
     if service is not None:
         candidates &= {service}
     if filters.none:

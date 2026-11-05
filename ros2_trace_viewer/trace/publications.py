@@ -55,7 +55,7 @@ def list_publications(db, execution_id, offset=0, limit=20, filters=None):
 
 
 def add_publish_markers(db, records, start, end, limit=20000, topics=(), topic_lanes=False,
-                        count_start=0, count_end=MAX_NS):
+                        count_start=0, count_end=MAX_NS, filters=None):
     """Keep all individual markers when bounded; aggregate crowded bins otherwise.
 
     Each density marker retains an exact count and first/last recorded timestamp.
@@ -66,16 +66,25 @@ def add_publish_markers(db, records, start, end, limit=20000, topics=(), topic_l
     if not ids:
         return 'events'
     placeholders = ','.join('?' for _ in ids)
+    searching = bool(filters and filters.search)
+    if searching:
+        source, scope, scope_params = publication_scope(filters)
+        count_source, node = source, 'pn.name'
+    else:
+        source, count_source, node = SOURCE, 'publications pub', 'n.name'
+        scope, scope_params = '1', []
     topic_counts = {}
-    if topics or topic_lanes or count_start or count_end != MAX_NS:
-        count_where = f'execution_id IN ({placeholders}) AND timestamp_ns>=? AND timestamp_ns<=?'
+    if topics or topic_lanes or count_start or count_end != MAX_NS or searching:
+        count_where = f'pub.execution_id IN ({placeholders}) AND pub.timestamp_ns>=? AND pub.timestamp_ns<=?'
         count_params = [*ids,count_start,count_end]
         if topics:
-            count_where += f' AND topic IN ({",".join("?" for _ in topics)})'
+            count_where += f' AND pub.topic IN ({",".join("?" for _ in topics)})'
             count_params.extend(topics)
+        count_where += f' AND ({scope})'
+        count_params.extend(scope_params)
         counts = {}
-        for row in db.execute(f'SELECT execution_id,topic,count(*) total FROM publications '
-                              f'WHERE {count_where} GROUP BY execution_id,topic', count_params):
+        for row in db.execute(f'SELECT pub.execution_id,pub.topic,count(*) total FROM {count_source} '
+                              f'WHERE {count_where} GROUP BY pub.execution_id,pub.topic', count_params):
             counts[row['execution_id']] = counts.get(row['execution_id'],0)+row['total']
             topic_counts[(row['execution_id'],row['topic'])] = row['total']
     else:
@@ -87,8 +96,10 @@ def add_publish_markers(db, records, start, end, limit=20000, topics=(), topic_l
     if topics:
         where += f' AND pub.topic IN ({",".join("?" for _ in topics)})'
         params.extend(topics)
+    where += f' AND ({scope})'
+    params.extend(scope_params)
     found = db.execute(f'''SELECT pub.id,pub.execution_id,pub.timestamp_ns,pub.topic,
-        n.name node_name FROM publications pub LEFT JOIN nodes n ON n.id=pub.node_id
+        {node} node_name FROM {source}
         WHERE {where} ORDER BY pub.execution_id,pub.timestamp_ns,pub.id LIMIT ?''',
         [*params, limit + 1]).fetchall()
     mode = 'events'
@@ -99,9 +110,9 @@ def add_publish_markers(db, records, start, end, limit=20000, topics=(), topic_l
         found = db.execute(f'''SELECT pub.execution_id,min(pub.timestamp_ns) timestamp_ns,
             max(pub.timestamp_ns) end_ns,count(*) count,
             CASE WHEN count(DISTINCT pub.topic)=1 THEN min(pub.topic) END topic,
-            CASE WHEN count(DISTINCT n.name)=1 THEN min(n.name) END node_name,
+            CASE WHEN count(DISTINCT {node})=1 THEN min({node}) END node_name,
             CAST((pub.timestamp_ns-?)/? AS INTEGER) bin
-            FROM publications pub LEFT JOIN nodes n ON n.id=pub.node_id WHERE {where}
+            FROM {source} WHERE {where}
             GROUP BY pub.execution_id,bin''', [start, step, *params]).fetchall()
     for row in found:
         marker = dict(row)

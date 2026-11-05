@@ -31,3 +31,5 @@ def test_installed_frontend_and_ros_entry_points():
     dependencies = {entry.text for entry in manifest.findall('exec_depend')}
     assert {'ros2trace','tracetools_analysis','tracetools_read','python3-babeltrace',
             'python3-numpy','python3-fastapi','python3-uvicorn'} <= dependencies
+    test_dependencies = {entry.text for entry in manifest.findall('test_depend')}
+    assert {'python3-httpx','python3-requests'} <= test_dependencies

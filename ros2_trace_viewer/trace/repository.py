@@ -12,6 +12,7 @@ from .publications import add_publish_markers, get_publication, list_publication
 from .topics import topic_data
 from .services import service_data
 from .communication_timeline import communication_lanes, communication_timeline
+from .service_names import is_default_service
 
 GROUPS = {
     'process': ('CAST(e.pid AS TEXT)', "coalesce(p.name,'Unknown process')||' ['||e.pid||']'"),
@@ -98,12 +99,14 @@ class Repository:
 
     def dimensions(self):
         with self.connect() as db:
+            services = [r[0] for r in db.execute('SELECT DISTINCT name FROM service_endpoints ORDER BY name')]
             return {
                 'threads': [dict(r) for r in db.execute(
                     'SELECT DISTINCT pid,tid FROM executions ORDER BY pid,tid')],
                 'cpus': [r[0] for r in db.execute('SELECT DISTINCT cpu FROM cpu_segments ORDER BY cpu')],
                 'topics': [r[0] for r in db.execute('SELECT DISTINCT topic FROM endpoints ORDER BY topic')],
-                'services': [r[0] for r in db.execute('SELECT DISTINCT name FROM service_endpoints ORDER BY name')],
+                'services': services,
+                'default_services': [name for name in services if is_default_service(name)],
                 'types': [r[0] for r in db.execute('SELECT DISTINCT type FROM callbacks ORDER BY type')],
             }
 
@@ -248,7 +251,7 @@ class Repository:
                 records = [execution_dict(r) for r in sorted(rows, key=lambda row: (
                     row['segment_start_ns'] if grouping == 'cpu' else row['start_ns'],row['id']))]
                 marker_mode = add_publish_markers(db, records, start, end, topics=filters.topics,
-                    count_start=filters.start,count_end=filters.end)
+                    count_start=filters.start,count_end=filters.end,filters=filters)
                 return {'mode': 'executions', 'lanes': lanes, 'total_lanes': total_lanes,
                         'records': records, 'publish_markers_mode': marker_mode}
             # Density keeps every interval represented: an interval contributes

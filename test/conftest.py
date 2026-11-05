@@ -49,8 +49,8 @@ def make_repository(tmp_path):
     return make
 
 
-@pytest.fixture
-def repository(make_repository):
+def repository_events():
+    """Small overlapping execution recording shared by API and browser tests."""
     events = [node(), node(200, 'beta'), node(pid=2, name='other')]
     events += timer() + timer(600, 201, 200, symbol='beta::work()') + timer(pid=2)
     events += execution(10, 30) + execution(40, 80)
@@ -64,4 +64,9 @@ def repository(make_repository):
                event('rmw_publish', 13, message=1000, rmw_publisher_handle=901, timestamp=EPOCH+11),
                event('rmw_take', 31, tid=12, message=2000, rmw_subscription_handle=301,
                      source_timestamp=EPOCH+11, taken=1),event('rcl_init', 100)]
-    return make_repository(events)[0]
+    return events
+
+
+@pytest.fixture
+def repository(make_repository):
+    return make_repository(repository_events())[0]

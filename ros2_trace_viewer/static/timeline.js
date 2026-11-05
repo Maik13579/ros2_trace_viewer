@@ -173,7 +173,9 @@ export class Timeline {
           }
           return;
         }
-        const records = data.records.filter(r => r.lane === lane.id);
+        const records = data.records.filter(r => r.lane === lane.id &&
+          seconds(r.segment_end_ns??r.end_ns)>=this.start &&
+          seconds(r.segment_start_ns??r.start_ns)<=this.start+this.span);
         const active = new Heap((a,b) => a.end - b.end), free = new Heap((a,b) => a - b);
         let slots = 0;
         const positioned = records.map(record => {

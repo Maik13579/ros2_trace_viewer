@@ -31,7 +31,7 @@ def owner_scope(filters, pid, node, tid=None):
 def callback_scope(filters):
     return bool(filters.callbacks or filters.exclude_callbacks or filters.types or
                 filters.include_callbacks or filters.min_duration or
-                filters.max_duration != MAX_NS or filters.cpus or filters.services)
+                filters.max_duration != MAX_NS or filters.cpus)
 
 
 def publication_scope(filters):
@@ -50,7 +50,7 @@ def publication_scope(filters):
         LEFT JOIN callbacks c ON c.id=e.callback_id LEFT JOIN nodes n ON n.id=c.node_id
         LEFT JOIN nodes pn ON pn.id=pub.node_id LEFT JOIN processes p ON p.pid=pub.pid'''
     if original_search:
-        where += " AND instr(lower(coalesce(pub.topic,'')||' '||coalesce(pn.name,'')||' '||coalesce(n.name,'')||' '||coalesce(c.topic,'')||' '||coalesce(c.symbol,'')||' '||coalesce(p.name,'')),lower(?))>0"
+        where += " AND instr(lower(coalesce(pub.topic,'')||' '||coalesce(pn.name,'')||' '||coalesce(n.name,'')||' '||coalesce(c.topic,'')||' '||coalesce(c.service,'')||' '||coalesce(c.symbol,'')||' '||coalesce(p.name,'')),lower(?))>0"
         params.append(original_search)
     if filters.topics:
         where += f' AND pub.topic IN ({",".join("?" for _ in filters.topics)})'

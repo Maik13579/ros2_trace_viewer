@@ -18,6 +18,7 @@
   <test_depend>demo_nodes_cpp</test_depend>
   <test_depend>python3-pyqt5</test_depend>
   <test_depend>python3-httpx</test_depend>
+  <test_depend>python3-requests</test_depend>
   <test_depend>python3-pytest</test_depend>
   <test_depend>python3-pyqt5.qtwebengine</test_depend>
   <test_depend>xvfb</test_depend>

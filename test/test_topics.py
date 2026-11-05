@@ -26,7 +26,7 @@ def test_subscription_topic_is_available_everywhere(make_repository):
     assert record['callback_topic'] == '/output'
     assert record['node_name'] == '/robot/beta'
     assert repo.catalog('callbacks', search='/output')['total'] == 1
-    assert repo.statistics(Filters(search='/output'), 'callback', 'name', False, 0, 100)['execution_count'] == 1
+    assert repo.statistics(Filters(search='/output'), 'callback', 'name', False, 0, 100)['execution_count'] == 2
     assert repo.boxplots(Filters(processes=(2,)))['rows'][0]['callback_topic'] == '/output'
 
 

@@ -9,9 +9,26 @@ import time
 import uvicorn
 
 from ros2_trace_viewer.server import create_app
+from ros2_trace_viewer.trace.repository import Repository
+from conftest import repository_events, event, execution
+from test_communication import service
 
 
-def test_browser_interface(repository, tmp_path):
+def test_browser_interface(make_repository, tmp_path, monkeypatch):
+    events = repository_events() + [
+        event('rcl_publisher_init',0,publisher_handle=910,node_handle=100,
+              rmw_publisher_handle=911,topic_name='/secondary',queue_depth=10),
+        *service(), *service(810,410,'/robot/ns/node/get_parameters'),
+        *service(820,420,'/robot/get_parameters_extra'),
+        *service(830,430,'/other/node/get_type_description'),
+        *execution(6,9,callback=800),*execution(60,63,callback=810),
+        *execution(90,94,callback=820)]
+    repository = make_repository(events)[0]
+    dimensions = Repository.dimensions
+    def without_default_metadata(self):
+        # The browser must match suffixes itself, even without a precomputed list.
+        return {key:value for key,value in dimensions(self).items() if key!='default_services'}
+    monkeypatch.setattr(Repository,'dimensions',without_default_metadata)
     sock = socket.socket()
     sock.bind(('127.0.0.1', 0))
     port = sock.getsockname()[1]

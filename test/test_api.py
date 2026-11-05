@@ -17,6 +17,7 @@ def test_read_endpoints(client, path):
     response = client.get(path)
     assert response.status_code == 200
     assert response.headers['x-content-type-options'] == 'nosniff'
+    assert response.headers['cache-control'] == 'no-store'
 
 
 def test_execution_and_adjacent_endpoints(client):
@@ -91,7 +92,7 @@ def test_resource_filters_and_timelines(client):
     assert len(result['publications'])==1
     assert client.get('/api/timeline?grouping=service').json()['lanes']==[]
     assert client.get('/api/statistics?topics=/output').json()['execution_count']==1
-    assert client.get('/api/statistics?services=/missing').json()['execution_count']==0
+    assert client.get('/api/statistics?services=/missing').json()['execution_count']==4
     assert client.get('/api/services').json()['request_response_timing'] is False
     assert client.post('/api/services').status_code==405
 

@@ -10,6 +10,7 @@ const timeline = new Timeline(selectExecution,selectPublication), statistics = n
 const boxplots = new BoxPlots(inspectStatistics),topics=new Topics(inspectTopic);
 const services=new Services(inspectService);
 let filterMode='callbacks',draftGrouping='node';
+const isDefaultService=name=>/\/(?:describe_parameters|get_parameter_types|get_parameters|list_parameters|set_parameters|set_parameters_atomically|get_type_description)$/.test(name);
 let inspectorVersion=0;
 function openInspector(title){
   $('details').hidden=false;document.body.classList.add('detail-open');
@@ -65,15 +66,48 @@ function filterCategory(name){
     $(panel).hidden=key!==name;$(`filter-${key}`).classList.toggle('active',key===name);
   }
   $('select-all').hidden=$('clear').hidden=name==='options';
+  $('search').placeholder=`Search ${name==='topics'?'topics':name==='services'?'services':'callbacks'}…`;
+  $('search').setAttribute('aria-label',`Search ${name==='topics'?'topics':name==='services'?'services':'callbacks'}`);
+  searchResourceLists();
 }
 for(const key of ['callbacks','topics','services','options'])$(`filter-${key}`).onclick=()=>filterCategory(key);
-$('search').oninput=()=>{state.draft.search=$('search').value;};
+$('search').oninput=()=>{state.draft.search=$('search').value.trim();searchResourceLists();};
+$('hide-default-services').onchange=()=>{
+  state.draft.exclude_default_services=$('hide-default-services').checked?'1':'';searchResourceLists();
+};
+function facetChoices(id,visible=false){
+  return [...$(id).querySelectorAll('input')].filter(box=>box.value!=='__all__'&&(!visible||!box.parentElement.hidden));
+}
+function updateFacetSelection(id){
+  const choices=facetChoices(id),selected=choices.filter(box=>box.checked).map(box=>box.value);
+  state.draft[id]=selected.length===choices.length?[]:selected.length?selected:[['types','topics','services'].includes(id)?'__none__':'-1'];
+  const visible=facetChoices(id,['topics','services'].includes(id)),all=$(id).querySelector('input');
+  all.checked=visible.length>0&&visible.every(box=>box.checked);
+  all.indeterminate=!all.checked&&visible.some(box=>box.checked);
+}
+function searchResourceLists(){
+  const query=$('search').value.trim().toLowerCase();
+  for(const id of ['topics','services']){
+    const choices=facetChoices(id),hideDefaults=id==='services'&&$('hide-default-services').checked;
+    for(const box of choices)box.parentElement.hidden=!!(query&&!box.value.toLowerCase().includes(query))||(hideDefaults&&isDefaultService(box.value));
+    const visible=facetChoices(id,true),all=$(id).querySelector('input'),empty=$(id).querySelector('.facet-empty');
+    if(all){
+      all.parentElement.hidden=visible.length===0;all.checked=visible.length>0&&visible.every(box=>box.checked);
+      all.indeterminate=!all.checked&&visible.some(box=>box.checked);
+      all.parentElement.lastChild.textContent=query?'All shown':'All';
+    }
+    if(empty){empty.hidden=visible.length>0;empty.textContent=choices.length?`No matching ${id}.`:'None recorded.';}
+  }
+  const resource=['topics','services'].includes(filterMode),shown=resource&&!!query;
+  $('select-all').textContent=shown?'All shown':'All';$('clear').textContent=shown?'None shown':'None';
+  $('select-all').disabled=$('clear').disabled=resource&&facetChoices(filterMode,true).length===0;
+}
 $('clear').onclick=()=>{
-  if(['topics','services'].includes(filterMode)){state.draft[filterMode]=['__none__'];syncFilterForm();return;}
+  if(['topics','services'].includes(filterMode)){facetChoices(filterMode,true).forEach(box=>box.checked=false);updateFacetSelection(filterMode);return;}
   Object.assign(state.draft,{none:'',include_selection:'1',include_processes:[],include_nodes:[],include_callbacks:[]});tree.sync();
 };
 $('select-all').onclick=()=>{
-  if(['topics','services'].includes(filterMode)){state.draft[filterMode]=[];syncFilterForm();return;}
+  if(['topics','services'].includes(filterMode)){facetChoices(filterMode,true).forEach(box=>box.checked=true);updateFacetSelection(filterMode);return;}
   Object.assign(state.draft,{exclude_processes:[],exclude_nodes:[],exclude_callbacks:[],callbacks:[],none:'',include_selection:'',include_processes:[],include_nodes:[],include_callbacks:[]});tree.sync();
 };
 $('reset-filters').onclick=()=>{
@@ -82,6 +116,7 @@ $('reset-filters').onclick=()=>{
 function syncFilterForm(){
   const f=state.draft;
   $('search').value=f.search||'';
+  $('hide-default-services').checked=!!f.exclude_default_services;
   $('range-start').value=f.start_time||'0';$('range-end').value=f.end_time||state.info.duration_seconds.toFixed(9);
   $('min-duration').value=f.min_duration?Number(f.min_duration)*1000:'';
   $('max-duration').value=f.max_duration?Number(f.max_duration)*1000:'';
@@ -89,6 +124,7 @@ function syncFilterForm(){
     const selected=(f[key]||[]).map(String),all=selected.length===0;
     $(key).querySelectorAll('input').forEach(input=>input.checked=input.value==='__all__'?all:all||selected.includes(input.value));
   }
+  searchResourceLists();
   tree.sync();
 }
 function facet(id,items){
@@ -96,24 +132,22 @@ function facet(id,items){
   const add=(value,label)=>{
     const box=el('input',{type:'checkbox',value,checked:true});
     box.onchange=()=>{
-      const inputs=[...target.querySelectorAll('input')],choices=inputs.filter(input=>input.value!=='__all__');
+      const choices=facetChoices(id,['topics','services'].includes(id));
       if(value==='__all__')choices.forEach(input=>input.checked=box.checked);
-      const selected=choices.filter(input=>input.checked).map(input=>input.value);
-      const all=selected.length===choices.length;
-      inputs[0].checked=all;
-      state.draft[id]=all?[]:selected.length?selected:[['types','topics','services'].includes(id)?'__none__':'-1'];
+      updateFacetSelection(id);
     };
     target.append(el('label',{class:'choice'},box,label));
   };
   add('__all__','All');items.forEach(item=>add(String(item.value),item.label));
-  if(!items.length)target.append(el('p',{class:'muted'},'None recorded.'));
+  if(['topics','services'].includes(id)||!items.length)target.append(el('p',{class:'muted facet-empty',hidden:items.length>0},'None recorded.'));
 }
 $('apply-filters').onclick=()=>{
   const start=Number($('range-start').value||0),end=Number($('range-end').value||state.info.duration_seconds);
   const min=$('min-duration').value,max=$('max-duration').value;
   if(!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start||end>state.info.duration_seconds||start>=state.info.duration_seconds)return showError(Error('Choose a start and end inside the recording, with end after start.'));
   if((min!==''&&Number(min)<0)||(max!==''&&Number(max)<0)||(min!==''&&max!==''&&Number(max)<Number(min)))return showError(Error('Enter a valid duration range.'));
-  Object.assign(state.draft,{search:$('search').value,start_time:start===0?'':start.toFixed(9),end_time:end===state.info.duration_seconds?'':end.toFixed(9),
+  Object.assign(state.draft,{exclude_default_services:$('hide-default-services').checked?'1':'',
+    search:$('search').value.trim(),start_time:start===0?'':start.toFixed(9),end_time:end===state.info.duration_seconds?'':end.toFixed(9),
     min_duration:min===''?'':(Number(min)/1000).toFixed(9),max_duration:max===''?'':(Number(max)/1000).toFixed(9)});
   state.grouping=draftGrouping;$('grouping').value=draftGrouping;
   state.filters=JSON.parse(JSON.stringify(state.draft));state.change();switchView(previousView);

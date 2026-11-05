@@ -56,6 +56,21 @@ def main():
         loop=QEventLoop();QTimer.singleShot(200,loop.quit);loop.exec_()
         view.grab().save(str(output/name))
 
+    def check_resource_search(kind):
+        js(f"window.searchListId='{kind}';")
+        js("{const boxes=[...document.querySelectorAll('#'+window.searchListId+' input:not([value=__all__])')];window.searchSelections=boxes.map(b=>b.checked);window.searchName=boxes[0].value;window.filterCountBefore=document.getElementById('filter-count').innerText;}")
+        js("document.getElementById('search').value=window.searchName.toUpperCase();document.getElementById('search').dispatchEvent(new Event('input'))")
+        assert js("[...document.querySelectorAll('#'+window.searchListId+' label.choice')].filter(r=>!r.hidden).every(r=>r.querySelector('input').value==='__all__'||r.innerText.toLowerCase().includes(window.searchName.toLowerCase()))")
+        assert js("JSON.stringify([...document.querySelectorAll('#'+window.searchListId+' input:not([value=__all__])')].map(b=>b.checked))===JSON.stringify(window.searchSelections)"), 'Search must preserve selections'
+        js("document.getElementById('clear').click()")
+        assert js("[...document.querySelectorAll('#'+window.searchListId+' input:not([value=__all__])')].every((b,i)=>!b.parentElement.hidden?!b.checked:b.checked===window.searchSelections[i])"), 'None shown must preserve hidden selections'
+        js("document.getElementById('select-all').click();document.getElementById('search').value='NO_RESOURCE_MATCH_91';document.getElementById('search').dispatchEvent(new Event('input'))")
+        assert js("[...document.querySelectorAll('#'+window.searchListId+' label.choice')].every(r=>r.hidden)")
+        assert js("!document.querySelector('#'+window.searchListId+' .facet-empty').hidden")
+        assert js("document.getElementById('filter-count').innerText===window.filterCountBefore"), 'Search is a draft until Apply'
+        js("document.getElementById('search').value='';document.getElementById('search').dispatchEvent(new Event('input'))")
+        assert js("[...document.querySelectorAll('#'+window.searchListId+' label.choice')].every(r=>!r.hidden)")
+
     try:
         wait("document.getElementById('trace-summary')?.title.includes('executions')")
         wait("document.getElementById('lane-head').children.length > 0")
@@ -108,6 +123,7 @@ def main():
         js("document.getElementById('toggle-filters').click();document.getElementById('filter-topics').click()")
         assert js("document.getElementById('topic-filter-panel').getBoundingClientRect().width>document.querySelector('main').clientWidth*.9")
         assert js("document.querySelector('#topics input:not([value=__all__])')!==null")
+        check_resource_search('topics')
         js("document.getElementById('clear').click();document.querySelector('#topics input:not([value=__all__])').click();window.chosenTopic=document.querySelector('#topics input:checked:not([value=__all__])').value")
         assert js("document.getElementById('filter-count').innerText===''")
         sizes=js("[...document.querySelectorAll('#topics input')].map(x=>[x.getBoundingClientRect().width,x.getBoundingClientRect().height])")
@@ -128,7 +144,7 @@ def main():
         js("document.getElementById('toggle-filters').click();document.getElementById('reset-filters').click();document.getElementById('apply-filters').click();document.getElementById('services-tab').click()")
         wait("document.querySelectorAll('#services-table tbody tr').length>0")
         if js("document.querySelector('#services-table tbody button')!==null"):
-            js("document.querySelector('#services-table tbody button').click()")
+            js("window.applicationServiceName=document.querySelector('#services-table tbody button').innerText;document.querySelector('#services-table tbody button').click()")
             wait("document.querySelector('#details .drawer-heading h2').innerText==='Service'")
             assert js("document.getElementById('selection').innerText.includes('Mean duration')")
             view.grab().save(str(output/'services.png'))
@@ -138,6 +154,36 @@ def main():
             capture('service_timeline.png')
             js("document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
             assert js("document.getElementById('service-filter-panel').getBoundingClientRect().width>document.querySelector('main').clientWidth*.9")
+            check_resource_search('services')
+            js("fetch('/api/dimensions').then(r=>r.json()).then(data=>{const suffixes=['describe_parameters','get_parameter_types','get_parameters','list_parameters','set_parameters','set_parameters_atomically','get_type_description'];window.defaultServiceNames=data.services.filter(n=>suffixes.includes(n.slice(n.lastIndexOf('/')+1)));window.nonDefaultServices=data.services.filter(n=>!window.defaultServiceNames.includes(n));})")
+            wait("window.defaultServiceNames!==undefined")
+            assert js("window.defaultServiceNames.length>0")
+            js("document.getElementById('hide-default-services').click()")
+            assert js("[...document.querySelectorAll('#services input:not([value=__all__])')].every(b=>b.parentElement.hidden===window.defaultServiceNames.includes(b.value))"), 'Default services must disappear immediately'
+            assert js("document.getElementById('filter-count').innerText===''")
+            capture('service_filters_hidden_defaults.png')
+            js("document.getElementById('close-filters').click();document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
+            assert js("!document.getElementById('hide-default-services').checked"), 'Cancel must discard the hide setting'
+            assert js("[...document.querySelectorAll('#services label.choice')].every(r=>!r.hidden)")
+            # Apply reads the actual control, without relying on a prior change event.
+            js("document.getElementById('hide-default-services').checked=true")
+            js("document.getElementById('apply-filters').click();document.getElementById('services-tab').click()")
+            wait("document.getElementById('services-summary').innerText===window.nonDefaultServices.length+' services'")
+            assert js("[...document.querySelectorAll('#services-table tbody button')].every(b=>!window.defaultServiceNames.includes(b.innerText))")
+            js("document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
+            assert js("document.getElementById('hide-default-services').checked")
+            assert js("[...document.querySelectorAll('#services input:not([value=__all__])')].filter(b=>window.defaultServiceNames.includes(b.value)).every(b=>b.parentElement.hidden)")
+            js("document.getElementById('filter-topics').click();document.getElementById('clear').click();document.querySelector('#topics input:not([value=__all__])').click();document.getElementById('apply-filters').click()")
+            wait("document.getElementById('activity').innerText==='Ready'")
+            assert js("[...document.querySelectorAll('#services-table tbody button')].some(b=>b.innerText===window.applicationServiceName)"), 'Topic selection must not hide service rows'
+            js("document.getElementById('services-timeline').click()")
+            wait("[...document.querySelectorAll('#lane-head>div')].some(lane=>lane.innerText===window.applicationServiceName)")
+            capture('service_with_topic_filter.png')
+            js("document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
+            js("document.getElementById('reset-filters').click()")
+            assert js("!document.getElementById('hide-default-services').checked")
+            assert js("[...document.querySelectorAll('#services label.choice')].every(r=>!r.hidden)")
+            js("document.getElementById('apply-filters').click();document.getElementById('services-timeline').click();document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
             js("document.getElementById('clear').click();document.querySelector('#services input:not([value=__all__])').click();window.chosenService=document.querySelector('#services input:checked:not([value=__all__])').value;document.getElementById('apply-filters').click()")
             wait("document.getElementById('lane-head').children.length===1&&document.querySelector('#lane-head>div').innerText===window.chosenService")
             js("document.getElementById('toggle-filters').click();document.getElementById('reset-filters').click();document.getElementById('apply-filters').click()")

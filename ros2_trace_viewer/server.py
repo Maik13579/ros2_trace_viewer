@@ -23,6 +23,7 @@ def create_app(database):
     async def headers(request, call_next):
         response = await call_next(request)
         response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Cache-Control'] = 'no-store'
         response.headers['Content-Security-Policy'] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'")

@@ -7,6 +7,7 @@ from dataclasses import replace
 from .filters import JOIN
 from .publications import add_publish_markers, publication_dict
 from .topics import callback_scope, owner_scope, publication_scope
+from .service_names import is_default_service
 
 
 def communication_lanes(db, filters, grouping):
@@ -20,7 +21,6 @@ def communication_lanes(db, filters, grouping):
                   f'WHERE {pub_where} AND pub.topic IS NOT NULL', pub_params)}
     table, column = ('endpoints', 'topic') if grouping == 'topic' else ('service_endpoints', 'name')
     strict = callback_scope(replace(filters, services=() if grouping == 'service' else filters.services))
-    strict = strict or (grouping == 'service' and bool(filters.topics))
     selected = filters.topics if grouping == 'topic' else filters.services
     # Default columns represent recorded activity. An explicitly selected,
     # declared resource may still have an empty column in this interval.
@@ -34,6 +34,8 @@ def communication_lanes(db, filters, grouping):
             WHERE {scope} AND ep.created_ns<=?''', [*values, filters.end])}
     if selected:
         names &= set(selected)
+    if grouping == 'service' and filters.exclude_default_services:
+        names = {name for name in names if not is_default_service(name)}
     if filters.none:
         names.clear()
     return [{'id': name, 'label': name} for name in sorted(names)]
@@ -110,7 +112,7 @@ def communication_timeline(db, filters, grouping, all_lanes, start, end, lane_of
         records = [encode(row) for row in sorted(rows,key=lambda row:(row['start_ns'],row['id']))]
         result['publish_markers_mode'] = add_publish_markers(db,records,start,end,
             topics=tuple(lane['id'] for lane in lanes) if grouping=='topic' else filters.topics,
-            topic_lanes=grouping=='topic',count_start=filters.start,count_end=filters.end)
+            topic_lanes=grouping=='topic',count_start=filters.start,count_end=filters.end,filters=filters)
         result['records'] = records
     else:
         cells, step = density(db,source,where,params,group,'e.start_ns','e.end_ns',start,end,lanes,bins)

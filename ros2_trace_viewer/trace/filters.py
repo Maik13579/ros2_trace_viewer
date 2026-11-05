@@ -1,6 +1,7 @@
 """Validated shared query filters; no user input is interpolated into SQL."""
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from .service_names import default_service_predicate
 
 
 MAX_NS = 2**63 - 1
@@ -39,6 +40,7 @@ class Filters:
     known_only: bool = True
     topics: tuple = ()
     services: tuple = ()
+    exclude_default_services: bool = False
     include_selection: bool = False
     include_processes: tuple = ()
     include_nodes: tuple = ()
@@ -69,6 +71,7 @@ class Filters:
         values['search'] = query.get('search', '')[:500]
         values['include_selection'] = query.get('include_selection') == '1'
         values['none'] = query.get('none') == '1'
+        values['exclude_default_services'] = query.get('exclude_default_services') == '1'
         result = cls(**values)
         if result.end < result.start or result.max_duration < result.min_duration:
             raise ValueError('Range end must be at least its start')
@@ -81,6 +84,10 @@ class Filters:
             clauses.append('c.initialized=1')
         if self.none:
             clauses.append('0')
+        if self.exclude_default_services:
+            standard, values = default_service_predicate('c.service')
+            clauses.append(f'(c.service IS NULL OR NOT {standard})')
+            params.extend(values)
         if include_time:
             if boundary == 'contained':
                 clauses += ['e.start_ns>=?', 'e.end_ns<=?']
@@ -90,7 +97,10 @@ class Filters:
         for key, column in LIST_FIELDS.items():
             values = getattr(self, key)
             if values:
-                clauses.append(f'{column} IN ({",".join("?" for _ in values)})')
+                selected = f'{column} IN ({",".join("?" for _ in values)})'
+                # Resource selections constrain their own callback category.
+                # Selecting services must not remove topic/timer callbacks.
+                clauses.append(f"(c.type!='service' OR {selected})" if key=='services' else selected)
                 params.extend(values)
         for key in ('processes', 'nodes', 'callbacks'):
             values = getattr(self, 'exclude_' + key)
@@ -107,7 +117,8 @@ class Filters:
             clauses.append('(' + ' OR '.join(selected) + ')' if selected else '0')
         if self.topics:
             marks = ','.join('?' for _ in self.topics)
-            clauses.append(f'(c.topic IN ({marks}) OR EXISTS '
+            # A service invocation does not need an input/output topic match.
+            clauses.append(f"(c.type='service' OR c.topic IN ({marks}) OR EXISTS "
                            f'(SELECT 1 FROM publications ft WHERE ft.execution_id=e.id AND ft.topic IN ({marks})))')
             params.extend([*self.topics, *self.topics])
         if self.cpus:
@@ -115,9 +126,11 @@ class Filters:
                            f'AND fs.cpu IN ({",".join("?" for _ in self.cpus)}))')
             params.extend(self.cpus)
         if self.search:
-            clauses.append("instr(lower(coalesce(c.service,'')||' '||coalesce(c.topic,'')||' '||coalesce(c.symbol,'')||' '||coalesce(n.name,'unknown')"
-                           "||' '||coalesce(p.name,'')||' '||c.pointer||' '||e.pid),lower(?))>0")
-            params.append(self.search)
+            clauses.append("(instr(lower(coalesce(c.service,'')||' '||coalesce(c.topic,'')||' '||coalesce(c.symbol,'')||' '||coalesce(n.name,'unknown')"
+                           "||' '||coalesce(p.name,'')||' '||c.pointer||' '||e.pid),lower(?))>0 OR EXISTS "
+                           "(SELECT 1 FROM execution_topics st WHERE st.execution_id=e.id "
+                           "AND instr(lower(st.topic),lower(?))>0))")
+            params.extend([self.search, self.search])
         return ' AND '.join(clauses), params
 
 
