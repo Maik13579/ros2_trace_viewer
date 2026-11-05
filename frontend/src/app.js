@@ -1,4 +1,4 @@
-import {$, el, api, state, duration, exactSeconds, seconds, debounce, showError, callbackLabel, publicationLabel} from './shared.js';
+import {$, el, api, state, duration, exactSeconds, seconds, debounce, showError, callbackLabel, publicationLabel, defaultFilters} from './shared.js';
 import {FilterTree} from './tree.js';
 import {Timeline} from './timeline.js';
 import {Statistics} from './statistics.js';
@@ -84,7 +84,10 @@ function filterCategory(name){
 for(const key of ['callbacks',...resourceFilters,'options'])$(`filter-${key}`).onclick=()=>filterCategory(key);
 $('search').oninput=()=>{state.draft.search=$('search').value.trim();searchResourceLists();};
 $('hide-default-services').onchange=()=>{
-  state.draft.exclude_default_services=$('hide-default-services').checked?'1':'';searchResourceLists();
+  state.draft.exclude_default_services=$('hide-default-services').checked?'1':'0';searchResourceLists();
+};
+$('hide-parameter-events').onchange=()=>{
+  state.draft.exclude_parameter_events=$('hide-parameter-events').checked?'1':'0';searchResourceLists();
 };
 function facetChoices(id,visible=false){
   return [...$(id).querySelectorAll('input')].filter(box=>box.value!=='__all__'&&(!visible||!box.parentElement.hidden));
@@ -100,7 +103,8 @@ function searchResourceLists(){
   const query=$('search').value.trim().toLowerCase();
   for(const id of resourceFilters){
     const choices=facetChoices(id),hideDefaults=id==='services'&&$('hide-default-services').checked;
-    for(const box of choices)box.parentElement.hidden=!!(query&&!box.value.toLowerCase().includes(query))||(hideDefaults&&isDefaultService(box.value));
+    const hideParameters=id==='topics'&&$('hide-parameter-events').checked;
+    for(const box of choices)box.parentElement.hidden=!!(query&&!box.value.toLowerCase().includes(query))||(hideDefaults&&isDefaultService(box.value))||(hideParameters&&box.value.endsWith('/parameter_events'));
     const visible=facetChoices(id,true),all=$(id).querySelector('input'),empty=$(id).querySelector('.facet-empty');
     if(all){
       all.parentElement.hidden=visible.length===0;all.checked=visible.length>0&&visible.every(box=>box.checked);
@@ -122,12 +126,13 @@ $('select-all').onclick=()=>{
   Object.assign(state.draft,{exclude_processes:[],exclude_nodes:[],exclude_callbacks:[],callbacks:[],none:'',include_selection:'',include_processes:[],include_nodes:[],include_callbacks:[]});tree.sync();
 };
 $('reset-filters').onclick=()=>{
-  state.draft={exclude_processes:[],exclude_nodes:[],exclude_callbacks:[]};syncFilterForm();
+  state.draft=defaultFilters();syncFilterForm();
 };
 function syncFilterForm(){
   const f=state.draft;
   $('search').value=f.search||'';
-  $('hide-default-services').checked=!!f.exclude_default_services;
+  $('hide-default-services').checked=f.exclude_default_services!=='0';
+  $('hide-parameter-events').checked=f.exclude_parameter_events!=='0';
   $('range-start').value=f.start_time||'0';$('range-end').value=f.end_time||state.info.duration_seconds.toFixed(9);
   $('min-duration').value=f.min_duration?Number(f.min_duration)*1000:'';
   $('max-duration').value=f.max_duration?Number(f.max_duration)*1000:'';
@@ -157,7 +162,8 @@ $('apply-filters').onclick=()=>{
   const min=$('min-duration').value,max=$('max-duration').value;
   if(!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start||end>state.info.duration_seconds||start>=state.info.duration_seconds)return showError(Error('Choose a start and end inside the recording, with end after start.'));
   if((min!==''&&Number(min)<0)||(max!==''&&Number(max)<0)||(min!==''&&max!==''&&Number(max)<Number(min)))return showError(Error('Enter a valid duration range.'));
-  Object.assign(state.draft,{exclude_default_services:$('hide-default-services').checked?'1':'',
+  Object.assign(state.draft,{exclude_default_services:$('hide-default-services').checked?'1':'0',
+    exclude_parameter_events:$('hide-parameter-events').checked?'1':'0',
     search:$('search').value.trim(),start_time:start===0?'':start.toFixed(9),end_time:end===state.info.duration_seconds?'':end.toFixed(9),
     min_duration:min===''?'':(Number(min)/1000).toFixed(9),max_duration:max===''?'':(Number(max)/1000).toFixed(9)});
   state.grouping=draftGrouping;$('grouping').value=draftGrouping;
@@ -356,7 +362,7 @@ async function boot(){
     facet('services',dimensions.services.map(value=>({value,label:value})));
     facet('actions',(dimensions.actions||[]).map(value=>({value,label:value})));
     await timeline.init();await tree.init();
-    if(!info.known_execution_count&&info.action_count)view('actions');
+    if(!info.duration_seconds&&info.action_count)view('actions');
   }catch(error){showError(error);$('activity').textContent='Unable to load';}
 }
 boot();

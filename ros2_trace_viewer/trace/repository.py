@@ -12,7 +12,7 @@ from .publications import add_publish_markers, get_publication, list_publication
 from .topics import topic_data
 from .services import service_data
 from .actions import action_data
-from .action_timeline import action_timeline, get_receive
+from .action_timeline import action_timeline, get_receive, action_event_lanes, add_action_observations
 from .communication_timeline import communication_lanes, communication_timeline
 from .service_names import is_default_service
 from .action_names import action_channel
@@ -232,9 +232,14 @@ class Repository:
             where += f' AND s.cpu IN ({",".join("?" for _ in filters.cpus)})'
             params.extend(filters.cpus)
         with self.connect() as db:
-            return [dict(r) for r in db.execute(
+            lanes = [dict(r) for r in db.execute(
                 f'SELECT {group} id,{label} label FROM {source} '
                 f'WHERE {where} GROUP BY {group} ORDER BY id', params)]
+            if self.info['action_count'] and grouping in ('node','process','thread'):
+                merged = {lane['id']:lane for lane in lanes}
+                merged.update({lane['id']:lane for lane in action_event_lanes(db,filters,grouping)})
+                lanes = sorted(merged.values(),key=lambda lane:lane['id'])
+            return lanes
 
     @lru_cache(maxsize=16)
     def timeline(self, filters, grouping, view_start, view_end, lane_offset=0,
@@ -290,8 +295,10 @@ class Repository:
                     row['segment_start_ns'] if grouping == 'cpu' else row['start_ns'],row['id']))]
                 marker_mode = add_publish_markers(db, records, start, end, topics=filters.topics,
                     count_start=filters.start,count_end=filters.end,filters=filters)
-                return {'mode': 'executions', 'lanes': lanes, 'total_lanes': total_lanes,
-                        'records': records, 'publish_markers_mode': marker_mode}
+                result = {'mode': 'executions', 'lanes': lanes, 'total_lanes': total_lanes,
+                          'records': records, 'publish_markers_mode': marker_mode}
+                return (add_action_observations(db,result,filters,grouping,start,end,budget,bins)
+                        if self.info['action_count'] and grouping in ('node','process','thread') else result)
             # Density keeps every interval represented: an interval contributes
             # to every bin it overlaps, not just the bin containing its start.
             step = max(1, (end - start + 1) / bins)
@@ -312,7 +319,9 @@ class Repository:
                     active += changes[index]
                     if active:
                         density.append({'lane': lane, 'bin': index, 'count': active})
-            return {'mode': 'density', 'lanes': lanes, 'total_lanes': total_lanes,
+            result = {'mode': 'density', 'lanes': lanes, 'total_lanes': total_lanes,
                     'density': density, 'bins': bins, 'start_ns': str(start),
                     'step_ns': step, 'message': 'Each cell counts all callbacks intersecting '
                     'that time bin. Zoom in to inspect individual executions.'}
+            return (add_action_observations(db,result,filters,grouping,start,end,budget,bins)
+                    if self.info['action_count'] and grouping in ('node','process','thread') else result)

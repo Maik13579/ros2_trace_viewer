@@ -19,6 +19,11 @@ def test_browser_interface(make_repository, tmp_path, monkeypatch):
     events = repository_events() + [
         event('rcl_publisher_init',0,publisher_handle=910,node_handle=100,
               rmw_publisher_handle=911,topic_name='/secondary',queue_depth=10),
+        event('rcl_publisher_init',0,publisher_handle=920,node_handle=100,
+              rmw_publisher_handle=921,topic_name='/parameter_events',queue_depth=10),
+        event('rcl_publisher_init',0,publisher_handle=930,node_handle=100,
+              rmw_publisher_handle=931,topic_name='/ns/parameter_events',queue_depth=10),
+        event('rcl_publish',95,publisher_handle=920,message=5000),
         *service(), *service(810,410,'/robot/ns/node/get_parameters'),
         *service(820,420,'/robot/get_parameters_extra'),
         *service(830,430,'/other/node/get_type_description'),*subscription(pid=1),

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from .service_names import default_service_predicate
 from .action_names import action_member
+from .topic_names import parameter_events_predicate
 
 
 MAX_NS = 2**63 - 1
@@ -43,6 +44,7 @@ class Filters:
     services: tuple = ()
     actions: tuple = ()
     exclude_default_services: bool = False
+    exclude_parameter_events: bool = False
     include_selection: bool = False
     include_processes: tuple = ()
     include_nodes: tuple = ()
@@ -74,6 +76,7 @@ class Filters:
         values['include_selection'] = query.get('include_selection') == '1'
         values['none'] = query.get('none') == '1'
         values['exclude_default_services'] = query.get('exclude_default_services') == '1'
+        values['exclude_parameter_events'] = query.get('exclude_parameter_events') == '1'
         result = cls(**values)
         if result.end < result.start or result.max_duration < result.min_duration:
             raise ValueError('Range end must be at least its start')
@@ -89,6 +92,10 @@ class Filters:
         if self.exclude_default_services:
             standard, values = default_service_predicate('c.service')
             clauses.append(f'(c.service IS NULL OR NOT {standard})')
+            params.extend(values)
+        if self.exclude_parameter_events:
+            standard, values = parameter_events_predicate('c.topic')
+            clauses.append(f'(c.topic IS NULL OR NOT ({standard}))')
             params.extend(values)
         if include_time:
             if boundary == 'contained':

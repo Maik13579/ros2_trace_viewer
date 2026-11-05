@@ -3,6 +3,8 @@
 This is naming evidence, not an action/goal tracepoint or proof of delivery.
 Keep the complete namespace so identically named actions remain independent.
 """
+from .topic_names import is_parameter_events, parameter_events_predicate
+
 ROLES = {
     'service': ('send_goal', 'cancel_goal', 'get_result'),
     'topic': ('feedback', 'status'),
@@ -61,6 +63,10 @@ def resource_scope(filters, column, transport):
     """Keep topic/service choices independent of the logical Actions category."""
     clauses, params = [], []
     member = action_member(column, transport)
+    if transport == 'topic' and filters.exclude_parameter_events:
+        standard, values = parameter_events_predicate(column)
+        clauses.append(f'({column} IS NULL OR NOT ({standard}))')
+        params.extend(values)
     selected = filters.topics if transport == 'topic' else filters.services
     if selected:
         clauses.append(f'({member} OR {column} IN ({",".join("?" for _ in selected)}))')
@@ -74,6 +80,8 @@ def resource_scope(filters, column, transport):
 
 
 def accepts_resource(filters, name, transport):
+    if transport == 'topic' and filters.exclude_parameter_events and is_parameter_events(name):
+        return False
     parsed = action_channel(name, transport)
     if parsed:
         return not filters.actions or parsed[0] in filters.actions

@@ -45,10 +45,14 @@ export async function api(path, parameters = {}, signal) {
     return data;
   } finally { pending--; $('activity').textContent = pending ? 'Loading…' : 'Ready'; }
 }
+export function defaultFilters(){
+  return {exclude_processes:[],exclude_nodes:[],exclude_callbacks:[],
+    exclude_default_services:'1',exclude_parameter_events:'1'};
+}
 export const state = {
   info: null, view: 'timeline', grouping: 'node', selected: null,
-  filters: {exclude_processes: [], exclude_nodes: [], exclude_callbacks: []},
-  draft: {exclude_processes: [], exclude_nodes: [], exclude_callbacks: []},
+  filters: defaultFilters(),
+  draft: defaultFilters(),
   events: new EventTarget(),
   parameters(extra = {}) {
     const result = {};
@@ -57,11 +61,12 @@ export const state = {
   },
   change() {
     $('error').hidden = true;
-    const count = Object.values(this.filters).filter(v => Array.isArray(v) ? v.length : !!v).length;
+    const count = Object.entries(this.filters).filter(([key,v]) =>
+      ['exclude_default_services','exclude_parameter_events'].includes(key)?v==='0':Array.isArray(v)?v.length:!!v).length;
     $('filter-count').textContent = count ? String(count) : '';
     this.events.dispatchEvent(new Event('filters'));
   },
-  reset() { this.filters = {exclude_processes: [], exclude_nodes: [], exclude_callbacks: []}; this.change(); },
+  reset() { this.filters = defaultFilters(); this.change(); },
 };
 export function canvasSize(canvas, width, height) {
   const ratio = window.devicePixelRatio || 1;

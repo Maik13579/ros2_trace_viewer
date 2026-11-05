@@ -1,5 +1,6 @@
 """Actions have separate filters, real intervals and bounded transport markers."""
 from dataclasses import replace
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -161,3 +162,34 @@ def test_receive_api_respects_active_filters(make_repository):
         assert client.get(path,params={'processes':'1'}).status_code == 404
         assert client.get(path,params={'start_time':'0.000000006'}).status_code == 404
         assert client.post(path).status_code == 405
+
+
+@pytest.mark.parametrize('grouping',['node','process','thread'])
+def test_action_activity_is_visible_without_action_columns(make_repository,grouping):
+    repo = make_repository(action_events())[0]
+    data = repo.timeline(Filters(),grouping,0,30)
+    assert data['records'] == []
+    assert len(data['lanes']) == 2
+    assert len(data['publications']) == len(data['receives']) == 3
+    lanes = {lane['id'] for lane in data['lanes']}
+    assert {point['lane'] for point in data['publications']+data['receives']} <= lanes
+    assert all(point['pid']==1 for point in data['publications'])
+    assert all(point['pid']==2 for point in data['receives'])
+    hidden = repo.timeline(Filters(actions=('__none__',)),grouping,0,30)
+    assert hidden['lanes'] == []
+    narrow = repo.timeline(Filters(),grouping,10,18)
+    assert [point['timestamp_ns'] for point in narrow['publications']] == ['12']
+    page = repo.timeline(Filters(),grouping,0,30,lane_offset=1,lane_limit=1)
+    assert len(page['lanes']) == 1
+    assert all(point['lane']==page['lanes'][0]['id'] for point in page['publications']+page['receives'])
+
+
+@pytest.mark.parametrize('grouping',['node','process','thread'])
+def test_owner_action_density_is_bounded_and_keeps_counts(make_repository,grouping):
+    events = action_events()+[event('rcl_publish',31+i,message=5000+i,publisher_handle=900)
+        for i in range(1000)]
+    repo = make_repository(events)[0]
+    data = repo.timeline(Filters(),grouping,0,1030,budget=10,bins=32)
+    assert data['publications_mode']=='density'
+    assert len(data['publications']) <= 5
+    assert sum(point['count'] for point in data['publications']) == 1003

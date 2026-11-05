@@ -9,6 +9,7 @@ from .publications import add_publish_markers, publication_dict
 from .topics import callback_scope, owner_scope, publication_scope
 from .service_names import is_default_service
 from .action_names import action_channel
+from .topic_names import is_parameter_events
 
 
 def communication_lanes(db, filters, grouping):
@@ -39,6 +40,8 @@ def communication_lanes(db, filters, grouping):
         names = {name for name in names if not is_default_service(name)}
     if filters.none:
         names.clear()
+    if grouping == 'topic' and filters.exclude_parameter_events:
+        names = {name for name in names if not is_parameter_events(name)}
     names = {name for name in names if not action_channel(name, grouping)}
     return [{'id': name, 'label': name} for name in sorted(names)]
 

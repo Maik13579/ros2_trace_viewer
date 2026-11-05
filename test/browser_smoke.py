@@ -58,7 +58,7 @@ def main():
 
     def check_resource_search(kind):
         js(f"window.searchListId='{kind}';")
-        js("{const boxes=[...document.querySelectorAll('#'+window.searchListId+' input:not([value=__all__])')];window.searchSelections=boxes.map(b=>b.checked);window.searchName=boxes[0].value;window.filterCountBefore=document.getElementById('filter-count').innerText;}")
+        js("{const boxes=[...document.querySelectorAll('#'+window.searchListId+' input:not([value=__all__])')];window.searchSelections=boxes.map(b=>b.checked);window.searchName=boxes.find(b=>!b.parentElement.hidden).value;window.filterCountBefore=document.getElementById('filter-count').innerText;}")
         js("document.getElementById('search').value=window.searchName.toUpperCase();document.getElementById('search').dispatchEvent(new Event('input'))")
         assert js("[...document.querySelectorAll('#'+window.searchListId+' label.choice')].filter(r=>!r.hidden).every(r=>r.querySelector('input').value==='__all__'||r.innerText.toLowerCase().includes(window.searchName.toLowerCase()))")
         assert js("JSON.stringify([...document.querySelectorAll('#'+window.searchListId+' input:not([value=__all__])')].map(b=>b.checked))===JSON.stringify(window.searchSelections)"), 'Search must preserve selections'
@@ -69,12 +69,12 @@ def main():
         assert js("!document.querySelector('#'+window.searchListId+' .facet-empty').hidden")
         assert js("document.getElementById('filter-count').innerText===window.filterCountBefore"), 'Search is a draft until Apply'
         js("document.getElementById('search').value='';document.getElementById('search').dispatchEvent(new Event('input'))")
-        assert js("[...document.querySelectorAll('#'+window.searchListId+' label.choice')].every(r=>!r.hidden)")
+        assert js("[...document.querySelectorAll('#'+window.searchListId+' input:not([value=__all__])')].every(b=>b.parentElement.hidden===(window.searchListId==='services'&&document.getElementById('hide-default-services').checked&&/\\/(?:describe_parameters|get_parameter_types|get_parameters|list_parameters|set_parameters|set_parameters_atomically|get_type_description)$/.test(b.value)||window.searchListId==='topics'&&document.getElementById('hide-parameter-events').checked&&b.value.endsWith('/parameter_events')))")
 
     def check_callback_labels(kind):
         selector='#stats-table tbody tr[data-callback-id]' if kind=='statistics' else '#boxplot-rows .boxplot-row'
         route='statistics?level=callback&limit=100' if kind=='statistics' else 'boxplots?limit=100'
-        js(f"window.labelSelector='{selector}';window.callbackLabelData=null;fetch('/api/{route}').then(r=>r.json()).then(data=>window.callbackLabelData=data);")
+        js(f"window.labelSelector='{selector}';window.callbackLabelData=null;fetch('/api/{route}&exclude_default_services=1&exclude_parameter_events=1').then(r=>r.json()).then(data=>window.callbackLabelData=data);")
         wait("window.callbackLabelData!==null")
         limit=50 if kind=='statistics' else 25
         assert js(f"document.querySelectorAll(window.labelSelector).length===Math.min({limit},window.callbackLabelData.total_groups)")
@@ -83,11 +83,33 @@ def main():
             if js(f"window.callbackLabelData.rows.slice(0,{limit}).some(r=>r.type==='{kind_name}')"):
                 assert js(f"[...document.querySelectorAll(window.labelSelector)].some(r=>r.dataset.callbackType==='{kind_name}')")
 
+    def check_default_parameter_visibility():
+        js("document.getElementById('topics-tab').click()")
+        wait("document.getElementById('activity').innerText==='Ready'")
+        assert js("[...document.querySelectorAll('#topics-table tbody button')].every(b=>!b.innerText.endsWith('/parameter_events'))")
+        js("document.getElementById('toggle-filters').click();document.getElementById('filter-topics').click()")
+        assert js("document.getElementById('hide-parameter-events').checked")
+        assert js("[...document.querySelectorAll('#topics input')].filter(b=>b.value.endsWith('/parameter_events')).every(b=>b.parentElement.hidden)")
+        js("document.getElementById('hide-parameter-events').click()")
+        assert js("[...document.querySelectorAll('#topics input')].filter(b=>b.value.endsWith('/parameter_events')).every(b=>!b.parentElement.hidden)")
+        assert js("document.getElementById('filter-count').innerText===''")
+        js("document.getElementById('close-filters').click();document.getElementById('toggle-filters').click();document.getElementById('filter-topics').click()")
+        assert js("document.getElementById('hide-parameter-events').checked"), 'Cancel must preserve default hiding'
+        js("document.getElementById('hide-parameter-events').checked=false;document.getElementById('apply-filters').click()")
+        wait("[...document.querySelectorAll('#topics-table tbody button')].some(b=>b.innerText.endsWith('/parameter_events'))")
+        js("document.getElementById('toggle-filters').click();document.getElementById('reset-filters').click()")
+        assert js("document.getElementById('hide-parameter-events').checked&&document.getElementById('hide-default-services').checked")
+        js("document.getElementById('apply-filters').click()")
+        wait("document.getElementById('activity').innerText==='Ready'")
+        assert js("[...document.querySelectorAll('#topics-table tbody button')].every(b=>!b.innerText.endsWith('/parameter_events'))")
+        js("document.getElementById('timeline-tab').click()")
+
     try:
         wait("document.getElementById('trace-summary')?.title.includes('executions')")
         wait("document.getElementById('lane-head').children.length > 0")
         wait("document.getElementById('activity').innerText==='Ready'")
         assert not js("!document.getElementById('error').hidden"), js("document.getElementById('error').innerText")
+        check_default_parameter_visibility()
         loop=QEventLoop();QTimer.singleShot(300,loop.quit);loop.exec_()
         view.grab().save(str(output / 'timeline.png'))
         js("document.getElementById('statistics-tab').click()")
@@ -156,9 +178,9 @@ def main():
         assert js("document.getElementById('topic-filter-panel').getBoundingClientRect().width>document.querySelector('main').clientWidth*.9")
         assert js("document.querySelector('#topics input:not([value=__all__])')!==null")
         check_resource_search('topics')
-        js("document.getElementById('clear').click();document.querySelector('#topics input:not([value=__all__])').click();window.chosenTopic=document.querySelector('#topics input:checked:not([value=__all__])').value")
+        js("document.getElementById('clear').click();[...document.querySelectorAll('#topics input:not([value=__all__])')].find(b=>!b.parentElement.hidden).click();window.chosenTopic=[...document.querySelectorAll('#topics input:checked:not([value=__all__])')].find(b=>!b.parentElement.hidden).value")
         assert js("document.getElementById('filter-count').innerText===''")
-        sizes=js("[...document.querySelectorAll('#topics input')].map(x=>[x.getBoundingClientRect().width,x.getBoundingClientRect().height])")
+        sizes=js("[...document.querySelectorAll('#topics input')].filter(x=>!x.parentElement.hidden).map(x=>[x.getBoundingClientRect().width,x.getBoundingClientRect().height])")
         assert all(size==[18,18] for size in sizes),sizes
         capture('topic_filters.png')
         js("document.getElementById('apply-filters').click()")
@@ -190,13 +212,17 @@ def main():
             js("fetch('/api/dimensions').then(r=>r.json()).then(data=>{const suffixes=['describe_parameters','get_parameter_types','get_parameters','list_parameters','set_parameters','set_parameters_atomically','get_type_description'];window.defaultServiceNames=data.services.filter(n=>suffixes.includes(n.slice(n.lastIndexOf('/')+1)));window.nonDefaultServices=data.services.filter(n=>!window.defaultServiceNames.includes(n));})")
             wait("window.defaultServiceNames!==undefined")
             assert js("window.defaultServiceNames.length>0")
-            js("document.getElementById('hide-default-services').click()")
+            assert js("document.getElementById('hide-default-services').checked")
             assert js("[...document.querySelectorAll('#services input:not([value=__all__])')].every(b=>b.parentElement.hidden===window.defaultServiceNames.includes(b.value))"), 'Default services must disappear immediately'
             assert js("document.getElementById('filter-count').innerText===''")
             capture('service_filters_hidden_defaults.png')
-            js("document.getElementById('close-filters').click();document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
-            assert js("!document.getElementById('hide-default-services').checked"), 'Cancel must discard the hide setting'
+            js("document.getElementById('hide-default-services').click()")
             assert js("[...document.querySelectorAll('#services label.choice')].every(r=>!r.hidden)")
+            js("document.getElementById('close-filters').click();document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
+            assert js("document.getElementById('hide-default-services').checked"), 'Cancel must preserve default hiding'
+            js("document.getElementById('hide-default-services').checked=false;document.getElementById('apply-filters').click();document.getElementById('services-tab').click()")
+            wait("document.getElementById('services-summary').innerText===(window.nonDefaultServices.length+window.defaultServiceNames.length)+' services'")
+            js("document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
             # Apply reads the actual control, without relying on a prior change event.
             js("document.getElementById('hide-default-services').checked=true")
             js("document.getElementById('apply-filters').click();document.getElementById('services-tab').click()")
@@ -205,7 +231,7 @@ def main():
             js("document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
             assert js("document.getElementById('hide-default-services').checked")
             assert js("[...document.querySelectorAll('#services input:not([value=__all__])')].filter(b=>window.defaultServiceNames.includes(b.value)).every(b=>b.parentElement.hidden)")
-            js("document.getElementById('filter-topics').click();document.getElementById('clear').click();document.querySelector('#topics input:not([value=__all__])').click();document.getElementById('apply-filters').click()")
+            js("document.getElementById('filter-topics').click();document.getElementById('clear').click();[...document.querySelectorAll('#topics input:not([value=__all__])')].find(b=>!b.parentElement.hidden).click();document.getElementById('apply-filters').click()")
             wait("document.getElementById('activity').innerText==='Ready'")
             assert js("[...document.querySelectorAll('#services-table tbody button')].some(b=>b.innerText===window.applicationServiceName)"), 'Topic selection must not hide service rows'
             js("document.getElementById('services-timeline').click()")
@@ -213,10 +239,10 @@ def main():
             capture('service_with_topic_filter.png')
             js("document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
             js("document.getElementById('reset-filters').click()")
-            assert js("!document.getElementById('hide-default-services').checked")
-            assert js("[...document.querySelectorAll('#services label.choice')].every(r=>!r.hidden)")
+            assert js("document.getElementById('hide-default-services').checked")
+            assert js("[...document.querySelectorAll('#services input:not([value=__all__])')].every(b=>b.parentElement.hidden===window.defaultServiceNames.includes(b.value))")
             js("document.getElementById('apply-filters').click();document.getElementById('services-timeline').click();document.getElementById('toggle-filters').click();document.getElementById('filter-services').click()")
-            js("document.getElementById('clear').click();document.querySelector('#services input:not([value=__all__])').click();window.chosenService=document.querySelector('#services input:checked:not([value=__all__])').value;document.getElementById('apply-filters').click()")
+            js("document.getElementById('clear').click();[...document.querySelectorAll('#services input:not([value=__all__])')].find(b=>!b.parentElement.hidden).click();window.chosenService=[...document.querySelectorAll('#services input:checked:not([value=__all__])')].find(b=>!b.parentElement.hidden).value;document.getElementById('apply-filters').click()")
             wait("document.getElementById('lane-head').children.length===1&&document.querySelector('#lane-head>div').innerText===window.chosenService")
             js("document.getElementById('toggle-filters').click();document.getElementById('reset-filters').click();document.getElementById('apply-filters').click()")
         js("document.getElementById('timeline-tab').click();document.getElementById('grouping').value='node';document.getElementById('grouping').dispatchEvent(new Event('change'));document.getElementById('boxplots-tab').click()")

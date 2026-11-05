@@ -66,7 +66,7 @@ def add_publish_markers(db, records, start, end, limit=20000, topics=(), topic_l
     if not ids:
         return 'events'
     placeholders = ','.join('?' for _ in ids)
-    searching = bool(filters and (filters.search or filters.actions or filters.topics))
+    searching = bool(filters and (filters.search or filters.actions or filters.topics or filters.exclude_parameter_events))
     # Global topic choices belong to Topics; action transport has its own
     # selection. Explicit lane topics still restrict markers to their column.
     if filters is not None and not topic_lanes and topics == filters.topics:

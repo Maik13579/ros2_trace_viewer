@@ -34,7 +34,8 @@ def encode_point(row):
     return result
 
 
-def action_points(db, filters, start, end, lanes, budget, bins, kind):
+def point_source(filters, kind, grouping):
+    """Build one filtered observation source with its requested owner column."""
     if kind == 'publish':
         source, where, params = publication_scope(filters)
         alias, identity, node = 'pub', 'pub.id', 'pn.name'
@@ -43,11 +44,35 @@ def action_points(db, filters, start, end, lanes, budget, bins, kind):
         source, where, params = receive_scope(filters)
         alias, identity, node, extra = 'r', 'r.rowid', 'n.name', ''
     source += f" JOIN action_channels ac ON ac.transport='topic' AND ac.name={alias}.topic"
-    where += f''' AND ac.action IN ({','.join('?' for _ in lanes)})
+    groups = {
+        'action': ('ac.action', 'ac.action'),
+        'node': (f"coalesce({alias}.node_id,'unknown:'||{alias}.pid)",
+                 f"coalesce({node},'Unknown node')||' ['||{alias}.pid||']'"),
+        'process': (f'CAST({alias}.pid AS TEXT)',
+                    f"coalesce(p.name,'Unknown process')||' ['||{alias}.pid||']'"),
+        'thread': (f"{alias}.pid||':'||{alias}.tid",f"'Thread '||{alias}.tid||' ['||{alias}.pid||']'"),
+    }
+    group, label = groups[grouping]
+    return source, where, params, alias, identity, node, extra, group, label
+
+
+def action_event_lanes(db, filters, grouping):
+    """Include owners whose action handlers have no recorded callback spans."""
+    lanes = {}
+    for kind in ('publish','receive'):
+        source, where, params, _, _, _, _, group, label = point_source(filters,kind,grouping)
+        for row in db.execute(f'SELECT {group} id,{label} label FROM {source} WHERE {where} GROUP BY {group}',params):
+            lanes[row['id']] = dict(row)
+    return list(lanes.values())
+
+
+def action_points(db, filters, start, end, lanes, budget, bins, kind, grouping='action'):
+    source, where, params, alias, identity, node, extra, group, _ = point_source(filters,kind,grouping)
+    where += f''' AND {group} IN ({','.join('?' for _ in lanes)})
         AND {alias}.timestamp_ns>=? AND {alias}.timestamp_ns<=?'''
     params += [*[lane['id'] for lane in lanes], start, end]
     fields = f'''{identity} id,{alias}.pid,{alias}.tid,{alias}.timestamp_ns,{alias}.topic,
-        {node} node_name,p.name process_name,ac.action lane,ac.action,
+        {node} node_name,p.name process_name,{group} lane,ac.action,
         ac.role action_role,'{kind}' event_kind{extra}'''
     rows = db.execute(f'SELECT {fields} FROM {source} WHERE {where} '
                       f'ORDER BY {alias}.timestamp_ns,{identity} LIMIT ?', [*params, budget+1]).fetchall()
@@ -55,14 +80,26 @@ def action_points(db, filters, start, end, lanes, budget, bins, kind):
         return [encode_point(row) for row in rows], 'events'
     per_lane = max(1, min(bins, budget//len(lanes)))
     step = max(1, (end-start+1)/per_lane)
-    rows = db.execute(f'''SELECT ac.action lane,ac.action,'{kind}' event_kind,
+    rows = db.execute(f'''SELECT {group} lane,'{kind}' event_kind,
+        CASE WHEN count(DISTINCT ac.action)=1 THEN min(ac.action) END action,
         CASE WHEN count(DISTINCT ac.role)=1 THEN min(ac.role) END action_role,
         CASE WHEN count(DISTINCT {alias}.topic)=1 THEN min({alias}.topic) END topic,
         min({alias}.timestamp_ns) timestamp_ns,max({alias}.timestamp_ns) end_ns,count(*) count,
         min(?,CAST(({alias}.timestamp_ns-?)/? AS INTEGER)) bin
-        FROM {source} WHERE {where} GROUP BY ac.action,bin''',
+        FROM {source} WHERE {where} GROUP BY lane,bin''',
         [per_lane-1, start, step, *params])
     return [encode_point(row) for row in rows], 'density'
+
+
+def add_action_observations(db, result, filters, grouping, start, end, budget, bins):
+    """Attach bounded action activity to the ordinary owner-grouped timeline."""
+    result.update(publications=[],receives=[])
+    if not result['lanes'] or end < start:
+        return result
+    for kind, key in [('publish','publications'),('receive','receives')]:
+        result[key],result[key+'_mode'] = action_points(db,filters,start,end,result['lanes'],
+            max(1,budget//2),bins,kind,grouping)
+    return result
 
 
 def get_receive(db, receive_id, filters):

@@ -86,8 +86,9 @@ export class Timeline {
     return {start,end,duration:Math.max(1e-12,end-start)};
   }
   async init() {
-    this.span = Math.max(1e-8, Math.min(state.info.duration_seconds, Math.max(.1,Math.min(5,50*state.info.duration_seconds/state.info.known_execution_count))));
-    try { const first = await api('locate'); if (first) this.start = Math.max(0, seconds(first.start_ns) - this.span * .1); } catch(error) { showError(error); }
+    const estimate=state.info.known_execution_count?50*state.info.duration_seconds/state.info.known_execution_count:state.info.duration_seconds;
+    this.span = Math.max(1e-8, Math.min(state.info.duration_seconds, Math.max(.1,Math.min(5,estimate))));
+    try { const first = await api('locate',state.parameters()); if (first) this.start = Math.max(0, seconds(first.start_ns) - this.span * .1); } catch(error) { showError(error); }
     const range=this.bounds();this.rangeKey=`${range.start}:${range.end}`;
     this.resize(); this.overview();
   }
@@ -134,9 +135,10 @@ export class Timeline {
         lane_offset: this.laneOffset, lane_limit: this.laneLimit,
         budget: Math.min(12000, Math.max(1000, Math.round(this.height * this.laneLimit)))}), this.controller.signal);
       this.data = data;
-      $('publish-legend').hidden=state.grouping==='action'?!state.info.capabilities.action_transport:state.grouping==='service'||!state.info.capabilities.publish_markers;
-      $('publish-legend').textContent=state.grouping==='action'?'◆ Publish · ○ Receive · ▬ Callback':state.grouping==='topic'?'◆ Publish · ▬ Callback':'─ Publish (zoom in)';
-      $('publish-legend').title=state.grouping==='action'?'Observed feedback/status transport and recorded callback spans. Goal duration and outcomes are not recorded.':'Publish ticks appear inside callback bars when zoomed in.';
+      const owners=['node','process','thread'].includes(state.grouping)&&state.info.capabilities.action_transport;
+      $('publish-legend').hidden=state.grouping==='action'||owners?!state.info.capabilities.action_transport:state.grouping==='service'||!state.info.capabilities.publish_markers;
+      $('publish-legend').textContent=state.grouping==='action'?'◆ Publish · ○ Receive · ▬ Callback':owners?'◆ Action publish · ○ Action receive · ▬ Callback':state.grouping==='topic'?'◆ Publish · ▬ Callback':'─ Publish (zoom in)';
+      $('publish-legend').title=state.grouping==='action'||owners?'Observed feedback/status transport and recorded callback spans. Goal duration and outcomes are not recorded.':'Publish ticks appear inside callback bars when zoomed in.';
       $('lane-head').replaceChildren(...data.lanes.map(lane => el('div', {title: lane.label}, state.grouping === 'node' ? lane.label.replace(/ \[\d+\]$/, '') : lane.label)));
       $('lane-page').textContent = data.total_lanes ? `${this.laneOffset + 1}–${this.laneOffset + data.lanes.length} / ${data.total_lanes}` : 'No columns';
       $('lanes-prev').disabled = this.laneOffset === 0;
@@ -186,7 +188,8 @@ export class Timeline {
           const slot = free.peek() === undefined ? slots++ : free.pop(); active.push({end, slot});
           return {record, start, end, slot};
         });
-        const gutter=state.grouping==='action'?40:state.grouping==='topic'?20:0;
+        const actionOwners=['node','process','thread'].includes(state.grouping)&&state.info.capabilities.action_transport;
+        const gutter=state.grouping==='action'||actionOwners?40:state.grouping==='topic'?20:0;
         const slotWidth = (laneWidth - 12-gutter) / Math.max(slots, 1);
         for (const item of positioned) {
           const {record, start, end, slot} = item;
@@ -276,10 +279,10 @@ export class Timeline {
     const version = this.overviewVersion = (this.overviewVersion || 0) + 1;
     try {
       let rows;
-      if(state.grouping==='action'){
-        const range=this.bounds(),data=await api('timeline',state.parameters({grouping:'action',view_start:range.start.toFixed(9),view_end:range.end.toFixed(9),lane_offset:this.laneOffset,lane_limit:64,budget:128,bins:64}));
+      if(state.grouping==='action'||(['node','process','thread'].includes(state.grouping)&&state.info.capabilities.action_transport)){
+        const range=this.bounds(),data=await api('timeline',state.parameters({grouping:state.grouping,view_start:range.start.toFixed(9),view_end:range.end.toFixed(9),lane_offset:this.laneOffset,lane_limit:64,budget:128,bins:64}));
         const bins=Array(64).fill(0);
-        for(const point of [...data.publications,...data.receives])bins[Math.max(0,Math.min(63,Math.floor((seconds(point.timestamp_ns)-range.start)/range.duration*64)))]+=point.count||1;
+        for(const point of [...(data.publications||[]),...(data.receives||[])])bins[Math.max(0,Math.min(63,Math.floor((seconds(point.timestamp_ns)-range.start)/range.duration*64)))]+=point.count||1;
         for(const row of data.records)bins[Math.max(0,Math.min(63,Math.floor((seconds(row.start_ns)-range.start)/range.duration*64)))]++;
         for(const cell of data.density||[])bins[Math.max(0,Math.min(63,Math.floor((seconds(data.start_ns)+cell.bin*data.step_ns/1e9-range.start)/range.duration*64)))]+=cell.count;
         rows=bins.map((count,index)=>({count,start_ns:String(Math.round((range.start+index/64*range.duration)*1e9))}));

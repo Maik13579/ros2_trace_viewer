@@ -42,6 +42,11 @@ def main():
 
     try:
         wait("document.getElementById('trace-summary')?.title.includes('executions')")
+        wait("!document.getElementById('timeline-view').hidden&&document.getElementById('grouping').value==='node'&&Number(document.getElementById('timeline').dataset.publishPoints)>0&&Number(document.getElementById('timeline').dataset.receivePoints)>0")
+        capture('default-node-actions.png')
+        for grouping in ['process','thread','node']:
+            js(f"document.getElementById('grouping').value='{grouping}';document.getElementById('grouping').dispatchEvent(new Event('change'))")
+            wait("document.getElementById('activity').innerText==='Ready'&&Number(document.getElementById('timeline').dataset.publishPoints)>0&&Number(document.getElementById('timeline').dataset.receivePoints)>0")
         assert js("[...document.querySelectorAll('nav button')].filter(b=>['timers-tab','topics-tab','services-tab','actions-tab'].includes(b.id)).map(b=>b.innerText).join(',')==='Timers,Topics,Services,Actions'")
         click('actions-tab')
         wait("document.querySelectorAll('#actions-table tbody tr[data-action]').length>0")
@@ -56,8 +61,10 @@ def main():
         wait("document.querySelector('#details h2').innerText==='Topic'")
         assert js("document.getElementById('selection').innerText.includes(window.actionName+'/_action/feedback')")
         click('toggle-filters');click('filter-topics')
+        assert js("document.getElementById('hide-parameter-events').checked")
         assert js("[...document.querySelectorAll('#topics input')].every(b=>!b.value.includes('/_action/'))")
         click('filter-services')
+        assert js("document.getElementById('hide-default-services').checked")
         assert js("[...document.querySelectorAll('#services input')].every(b=>!b.value.includes('/_action/'))")
         click('filter-actions')
         assert js("[...document.querySelectorAll('#actions input')].some(b=>b.value===window.actionName)")
