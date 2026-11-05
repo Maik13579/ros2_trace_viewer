@@ -79,6 +79,11 @@ def create_router(repository):
                  offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
         return repository.services(filters(request),offset,limit,service)
 
+    @router.get('/actions')
+    def actions(request: Request, action: str = None,
+                offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
+        return repository.actions(filters(request), offset, limit, action)
+
     @router.get('/topics')
     def topics(request: Request, topic_search: str = '', topic: str = None,
                offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):

@@ -6,11 +6,13 @@ import {BoxPlots} from './boxplots.js';
 import {Topics} from './topics.js';
 import {Services} from './services.js';
 import {Timers} from './timers.js';
+import {Actions, actionDetails} from './actions.js';
 
 const timeline = new Timeline(selectExecution,selectPublication), statistics = new Statistics(inspectStatistics), tree = new FilterTree();
 const boxplots = new BoxPlots(inspectStatistics),topics=new Topics(inspectTopic);
 const services=new Services(inspectService);
 const timers=new Timers(inspectStatistics);
+const actions=new Actions(inspectAction);
 let filterMode='callbacks',draftGrouping='node';
 const isDefaultService=name=>/\/(?:describe_parameters|get_parameter_types|get_parameters|list_parameters|set_parameters|set_parameters_atomically|get_type_description)$/.test(name);
 let inspectorVersion=0;
@@ -21,7 +23,7 @@ function openInspector(title){
 let previousView='timeline';
 function switchView(name){
   state.view=name;
-  for(const item of ['timeline','statistics','boxplots','topics','services','timers','filters']){
+  for(const item of ['timeline','statistics','boxplots','topics','services','timers','actions','filters']){
     $(`${item}-view`).hidden=item!==name;
     $(item==='filters'?'toggle-filters':`${item}-tab`).classList.toggle('active',item===name);
   }
@@ -32,6 +34,7 @@ function switchView(name){
   else if(name==='topics')topics.refresh();
   else if(name==='services')services.refresh();
   else if(name==='timers')timers.refresh();
+  else if(name==='actions')actions.refresh();
 }
 function view(name){
   if(name==='filters'){
@@ -49,6 +52,7 @@ $('boxplots-tab').onclick=()=>view('boxplots');
 $('topics-tab').onclick=()=>view('topics');
 $('services-tab').onclick=()=>view('services');
 $('timers-tab').onclick=()=>view('timers');
+$('actions-tab').onclick=()=>view('actions');
 for(const kind of ['topic','service']){
   $(`${kind}s-timeline`).onclick=()=>{
     state.grouping=kind;$('grouping').value=kind;timeline.laneOffset=0;view('timeline');
@@ -264,6 +268,15 @@ async function inspectService(name){
     $('selection').replaceChildren(el('h3',{},record.service),dl,el('p',{class:'muted note'},'Calling callback and request/reply timing are unavailable.'));
   }catch(error){if(version===inspectorVersion)showError(error);}
 }
+async function inspectAction(name){
+  const version=++inspectorVersion;
+  try{
+    const result=await api('actions',state.parameters({action:name,limit:1}));
+    if(version!==inspectorVersion||!result.items.length)return;
+    openInspector('Action');
+    $('selection').replaceChildren(actionDetails(result.items[0],inspectTopic,inspectService));
+  }catch(error){if(version===inspectorVersion)showError(error);}
+}
 async function adjacent(direction){
   if(!state.selected)return;
   try{
@@ -325,6 +338,7 @@ async function boot(){
     facet('topics',dimensions.topics.map(value=>({value,label:value})));
     facet('services',dimensions.services.map(value=>({value,label:value})));
     await timeline.init();await tree.init();
+    if(!info.known_execution_count&&info.action_count)view('actions');
   }catch(error){showError(error);$('activity').textContent='Unable to load';}
 }
 boot();

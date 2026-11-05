@@ -11,6 +11,7 @@ import json
 from .associations import Associations
 from .models import INDICES
 from .messages import MessageProcessor
+from .action_names import recorded_action_roles
 
 
 class Processor:
@@ -163,6 +164,7 @@ class Processor:
                            FROM cpu_segments''')
         cpu_count = self.db.execute('SELECT count(*) FROM cpu_segments').fetchone()[0]
         duration = (self.last - self.origin) if self.origin is not None else 0
+        action_count = len(recorded_action_roles(self.db))
         info = {
             'name': trace_name, 'origin_ns': str(self.origin or 0),
             'duration_ns': str(duration), 'duration_seconds': duration / 1e9,
@@ -171,8 +173,11 @@ class Processor:
                 'JOIN callbacks c ON c.id=e.callback_id WHERE c.initialized=1').fetchone()[0],
             'process_count': self.db.execute('SELECT count(*) FROM processes').fetchone()[0],
             'node_count': self.db.execute('SELECT count(*) FROM nodes').fetchone()[0],
+            'action_count': action_count,
             'diagnostics': dict(self.counts), 'events': sorted(self.seen),
             'capabilities': {
+                'action_transport': action_count > 0,
+                'action_goal_timing': False,
                 'scheduler_events': self.counts['scheduler_switches'] > 0,
                 'cpu_execution': cpu_count > 0,
                 'publish_markers': self.counts['publishes'] > 0,

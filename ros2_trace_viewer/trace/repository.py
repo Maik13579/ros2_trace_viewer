@@ -11,6 +11,7 @@ from .statistics import charts, statistics
 from .publications import add_publish_markers, get_publication, list_publications, count_publications
 from .topics import topic_data
 from .services import service_data
+from .actions import action_data
 from .communication_timeline import communication_lanes, communication_timeline
 from .service_names import is_default_service
 
@@ -128,6 +129,21 @@ class Repository:
     def services(self, filters, offset=0, limit=50, service=None):
         with self.connect() as db:
             return service_data(db,filters,int(self.info['duration_ns']),offset,limit,service)
+
+    @lru_cache(maxsize=8)
+    def _actions(self, filters):
+        with self.connect() as db:
+            return action_data(db, filters, int(self.info['duration_ns']))
+
+    def actions(self, filters, offset=0, limit=50, action=None):
+        """Paged inferred action groups; activity always uses the applied filters."""
+        items = self._actions(filters)
+        if action is not None:
+            items = [item for item in items if item['action'] == action]
+        return {'items': items[offset:offset+limit], 'total': len(items),
+                'offset': offset, 'limit': limit, 'transport_only': True,
+                'association': 'Inferred from standard /_action/ endpoint names. '
+                    'Recorded peers are declarations, not per-goal connections.'}
 
     @lru_cache(maxsize=32)
     def communication_lanes(self, filters, grouping):

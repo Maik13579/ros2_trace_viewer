@@ -86,11 +86,11 @@ def load_trace(path, progress=print, work_dir=None):
                              f"matched {processor.counts['executions']:,} callbacks…")
             progress('Building interval and callback indices…')
             info = processor.finalize(root.name)
-            if not info['execution_count']:
+            if not info['execution_count'] and not info['action_count']:
                 raise TraceError('No complete ROS 2 callback executions found. Record '
                     'ros2:callback_start and ros2:callback_end with vpid/vtid contexts. '
                     f"Diagnostics: {info['diagnostics']}")
-            if not info['known_execution_count']:
+            if not info['known_execution_count'] and not info['action_count']:
                 raise TraceError('No initialized callbacks found. Include callback registration '
                                  'or callback association initialization events in the recording.')
             progress(f"Ready: {info['execution_count']:,} callback executions, "

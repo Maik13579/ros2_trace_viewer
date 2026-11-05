@@ -16,6 +16,8 @@
   <test_depend>ament_index_python</test_depend>
   <test_depend>composition</test_depend>
   <test_depend>demo_nodes_cpp</test_depend>
+  <test_depend>examples_rclcpp_minimal_action_client</test_depend>
+  <test_depend>examples_rclcpp_minimal_action_server</test_depend>
   <test_depend>python3-pyqt5</test_depend>
   <test_depend>python3-httpx</test_depend>
   <test_depend>python3-requests</test_depend>
