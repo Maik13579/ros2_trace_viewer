@@ -54,6 +54,13 @@ def test_genuine_jazzy_action_transport(tmp_path):
         assert len(row['channels']) == 5
         assert row['goal_count'] is row['action_type'] is None
         assert row['goal_timing_available'] is False
+        timeline = repo.timeline(Filters(),'action',0,int(repo.info['duration_ns']))
+        assert timeline['records'] == []
+        topic_names = [base+'/_action/'+role for base,role in roles if role in ('feedback','status')]
+        assert len(timeline['publications']) == sum(publishes[name] for name in topic_names)
+        assert len(timeline['receives']) == sum(receives[name] for name in topic_names)
+        assert all('/_action/' not in name for name in repo.dimensions()['topics'])
+        assert all('/_action/' not in name for name in repo.dimensions()['services'])
         for channel in row['channels']:
             if channel['transport'] == 'topic':
                 topic = channel['topic']

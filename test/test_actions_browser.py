@@ -20,7 +20,7 @@ def test_action_browser(source, make_repository, tmp_path):
     @contextmanager
     def database():
         if source == 'synthetic':
-            yield make_repository(action_events())[0].path
+            yield make_repository([*action_events(),*action_events('/robot/other/fibonacci',server=3,client=4)])[0].path
         else:
             trace = os.environ.get('ROS2_TRACE_VIEWER_TEST_ACTION_TRACE')
             if not trace:

@@ -3,9 +3,10 @@ from dataclasses import replace
 from .filters import JOIN
 from .topics import callback_scope, owner_scope
 from .service_names import is_default_service
+from .action_names import accepts_resource, action_channel
 
 
-def service_data(db, filters, trace_end, offset=0, limit=50, service=None):
+def service_data(db, filters, trace_end, offset=0, limit=50, service=None, include_actions=False):
     filters = replace(filters, end=min(filters.end, trace_end))
     where, params = filters.sql('contained')
     metrics = {row['service']: dict(row) for row in db.execute(f'''SELECT c.service,
@@ -30,8 +31,9 @@ def service_data(db, filters, trace_end, offset=0, limit=50, service=None):
         candidates |= {r[0] for r in db.execute(f'''SELECT DISTINCT ep.name FROM service_endpoints ep
             LEFT JOIN nodes n ON n.id=ep.node_id LEFT JOIN processes p ON p.pid=ep.pid
             WHERE {scope} AND ep.created_ns<=?''', [*values, filters.end])}
-    if filters.services:
-        candidates &= set(filters.services)
+    candidates = {name for name in candidates if accepts_resource(filters, name, 'service')}
+    if not include_actions and service is None:
+        candidates = {name for name in candidates if not action_channel(name, 'service')}
     if filters.exclude_default_services:
         candidates = {name for name in candidates if not is_default_service(name)}
     if service is not None:

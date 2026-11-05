@@ -8,12 +8,13 @@ import {Services} from './services.js';
 import {Timers} from './timers.js';
 import {Actions, actionDetails} from './actions.js';
 
-const timeline = new Timeline(selectExecution,selectPublication), statistics = new Statistics(inspectStatistics), tree = new FilterTree();
+const timeline = new Timeline(selectExecution,selectPublication,selectReceive), statistics = new Statistics(inspectStatistics), tree = new FilterTree();
 const boxplots = new BoxPlots(inspectStatistics),topics=new Topics(inspectTopic);
 const services=new Services(inspectService);
 const timers=new Timers(inspectStatistics);
 const actions=new Actions(inspectAction);
 let filterMode='callbacks',draftGrouping='node';
+const resourceFilters=['topics','services','actions'];
 const isDefaultService=name=>/\/(?:describe_parameters|get_parameter_types|get_parameters|list_parameters|set_parameters|set_parameters_atomically|get_type_description)$/.test(name);
 let inspectorVersion=0;
 function openInspector(title){
@@ -42,7 +43,7 @@ function view(name){
     previousView=state.view;
     state.draft=JSON.parse(JSON.stringify(state.filters));syncFilterForm();
     draftGrouping=state.grouping;filterCategory('callbacks');
-    $('topic-columns').checked=draftGrouping==='topic';$('service-columns').checked=draftGrouping==='service';
+    for(const kind of ['topic','service','action'])$(`${kind}-columns`).checked=draftGrouping===kind;
   }
   switchView(name);
 }
@@ -53,32 +54,34 @@ $('topics-tab').onclick=()=>view('topics');
 $('services-tab').onclick=()=>view('services');
 $('timers-tab').onclick=()=>view('timers');
 $('actions-tab').onclick=()=>view('actions');
-for(const kind of ['topic','service']){
+for(const kind of ['topic','service','action']){
   $(`${kind}s-timeline`).onclick=()=>{
     state.grouping=kind;$('grouping').value=kind;timeline.laneOffset=0;view('timeline');
+    if(kind==='action')$('fit').click();timeline.overview();
   };
   $(`${kind}-columns`).onchange=()=>{
     draftGrouping=$(`${kind}-columns`).checked?kind:'node';
-    $('topic-columns').checked=draftGrouping==='topic';$('service-columns').checked=draftGrouping==='service';
+    for(const item of ['topic','service','action'])$(`${item}-columns`).checked=draftGrouping===item;
   };
 }
 $('toggle-filters').onclick=()=>view('filters');
 $('close-filters').onclick=()=>switchView(previousView);
 $('close-details').onclick=()=>{
-  $('details').hidden=true;document.body.classList.remove('detail-open');inspectorVersion++;state.selected=null;state.selectedPublish=null;timeline.draw();
+  $('details').hidden=true;document.body.classList.remove('detail-open');inspectorVersion++;state.selected=null;state.selectedPublish=null;state.selectedReceive=null;timeline.draw();
 };
-$('grouping').onchange=()=>{state.grouping=$('grouping').value;timeline.laneOffset=0;timeline.refresh();};
+$('grouping').onchange=()=>{state.grouping=$('grouping').value;timeline.laneOffset=0;if(state.grouping==='action')$('fit').click();timeline.refresh();timeline.overview();};
 function filterCategory(name){
   filterMode=name;
-  for(const [key,panel] of [['callbacks','callback-filter-tree'],['topics','topic-filter-panel'],['services','service-filter-panel'],['options','filter-options-panel']]){
+  for(const [key,panel] of [['callbacks','callback-filter-tree'],['topics','topic-filter-panel'],['services','service-filter-panel'],['actions','action-filter-panel'],['options','filter-options-panel']]){
     $(panel).hidden=key!==name;$(`filter-${key}`).classList.toggle('active',key===name);
   }
   $('select-all').hidden=$('clear').hidden=name==='options';
-  $('search').placeholder=`Search ${name==='topics'?'topics':name==='services'?'services':'callbacks'}…`;
-  $('search').setAttribute('aria-label',`Search ${name==='topics'?'topics':name==='services'?'services':'callbacks'}`);
+  const label=resourceFilters.includes(name)?name:'callbacks';
+  $('search').placeholder=`Search ${label}…`;
+  $('search').setAttribute('aria-label',`Search ${label}`);
   searchResourceLists();
 }
-for(const key of ['callbacks','topics','services','options'])$(`filter-${key}`).onclick=()=>filterCategory(key);
+for(const key of ['callbacks',...resourceFilters,'options'])$(`filter-${key}`).onclick=()=>filterCategory(key);
 $('search').oninput=()=>{state.draft.search=$('search').value.trim();searchResourceLists();};
 $('hide-default-services').onchange=()=>{
   state.draft.exclude_default_services=$('hide-default-services').checked?'1':'';searchResourceLists();
@@ -88,14 +91,14 @@ function facetChoices(id,visible=false){
 }
 function updateFacetSelection(id){
   const choices=facetChoices(id),selected=choices.filter(box=>box.checked).map(box=>box.value);
-  state.draft[id]=selected.length===choices.length?[]:selected.length?selected:[['types','topics','services'].includes(id)?'__none__':'-1'];
-  const visible=facetChoices(id,['topics','services'].includes(id)),all=$(id).querySelector('input');
+  state.draft[id]=selected.length===choices.length?[]:selected.length?selected:[['types',...resourceFilters].includes(id)?'__none__':'-1'];
+  const visible=facetChoices(id,resourceFilters.includes(id)),all=$(id).querySelector('input');
   all.checked=visible.length>0&&visible.every(box=>box.checked);
   all.indeterminate=!all.checked&&visible.some(box=>box.checked);
 }
 function searchResourceLists(){
   const query=$('search').value.trim().toLowerCase();
-  for(const id of ['topics','services']){
+  for(const id of resourceFilters){
     const choices=facetChoices(id),hideDefaults=id==='services'&&$('hide-default-services').checked;
     for(const box of choices)box.parentElement.hidden=!!(query&&!box.value.toLowerCase().includes(query))||(hideDefaults&&isDefaultService(box.value));
     const visible=facetChoices(id,true),all=$(id).querySelector('input'),empty=$(id).querySelector('.facet-empty');
@@ -106,16 +109,16 @@ function searchResourceLists(){
     }
     if(empty){empty.hidden=visible.length>0;empty.textContent=choices.length?`No matching ${id}.`:'None recorded.';}
   }
-  const resource=['topics','services'].includes(filterMode),shown=resource&&!!query;
+  const resource=resourceFilters.includes(filterMode),shown=resource&&!!query;
   $('select-all').textContent=shown?'All shown':'All';$('clear').textContent=shown?'None shown':'None';
   $('select-all').disabled=$('clear').disabled=resource&&facetChoices(filterMode,true).length===0;
 }
 $('clear').onclick=()=>{
-  if(['topics','services'].includes(filterMode)){facetChoices(filterMode,true).forEach(box=>box.checked=false);updateFacetSelection(filterMode);return;}
+  if(resourceFilters.includes(filterMode)){facetChoices(filterMode,true).forEach(box=>box.checked=false);updateFacetSelection(filterMode);return;}
   Object.assign(state.draft,{none:'',include_selection:'1',include_processes:[],include_nodes:[],include_callbacks:[]});tree.sync();
 };
 $('select-all').onclick=()=>{
-  if(['topics','services'].includes(filterMode)){facetChoices(filterMode,true).forEach(box=>box.checked=true);updateFacetSelection(filterMode);return;}
+  if(resourceFilters.includes(filterMode)){facetChoices(filterMode,true).forEach(box=>box.checked=true);updateFacetSelection(filterMode);return;}
   Object.assign(state.draft,{exclude_processes:[],exclude_nodes:[],exclude_callbacks:[],callbacks:[],none:'',include_selection:'',include_processes:[],include_nodes:[],include_callbacks:[]});tree.sync();
 };
 $('reset-filters').onclick=()=>{
@@ -128,7 +131,7 @@ function syncFilterForm(){
   $('range-start').value=f.start_time||'0';$('range-end').value=f.end_time||state.info.duration_seconds.toFixed(9);
   $('min-duration').value=f.min_duration?Number(f.min_duration)*1000:'';
   $('max-duration').value=f.max_duration?Number(f.max_duration)*1000:'';
-  for(const key of ['types','threads','cpus','topics','services']){
+  for(const key of ['types','threads','cpus',...resourceFilters]){
     const selected=(f[key]||[]).map(String),all=selected.length===0;
     $(key).querySelectorAll('input').forEach(input=>input.checked=input.value==='__all__'?all:all||selected.includes(input.value));
   }
@@ -140,14 +143,14 @@ function facet(id,items){
   const add=(value,label)=>{
     const box=el('input',{type:'checkbox',value,checked:true});
     box.onchange=()=>{
-      const choices=facetChoices(id,['topics','services'].includes(id));
+      const choices=facetChoices(id,resourceFilters.includes(id));
       if(value==='__all__')choices.forEach(input=>input.checked=box.checked);
       updateFacetSelection(id);
     };
     target.append(el('label',{class:'choice'},box,label));
   };
   add('__all__','All');items.forEach(item=>add(String(item.value),item.label));
-  if(['topics','services'].includes(id)||!items.length)target.append(el('p',{class:'muted facet-empty',hidden:items.length>0},'None recorded.'));
+  if(resourceFilters.includes(id)||!items.length)target.append(el('p',{class:'muted facet-empty',hidden:items.length>0},'None recorded.'));
 }
 $('apply-filters').onclick=()=>{
   const start=Number($('range-start').value||0),end=Number($('range-end').value||state.info.duration_seconds);
@@ -166,7 +169,7 @@ $('visible-range').onclick=()=>{$('range-start').value=timeline.start.toFixed(9)
 async function selectExecution(id){
   const version=++inspectorVersion;
   try{
-    const record=await api(`executions/${id}`,state.parameters());if(version!==inspectorVersion)return;state.selected=record;state.selectedPublish=null;
+    const record=await api(`executions/${id}`,state.parameters());if(version!==inspectorVersion)return;state.selected=record;state.selectedPublish=null;state.selectedReceive=null;
     openInspector('Callback');
     const details=$('selection');details.replaceChildren(el('h3',{},callbackLabel(record)),
       el('div',{class:'duration-large'},duration(record.duration_ns)),el('div',{class:'muted note'},'Wall-clock duration'));
@@ -208,7 +211,7 @@ async function selectPublication(id){
   const version=++inspectorVersion;
   try{
     const record=await api(`publications/${id}`,state.parameters());if(version!==inspectorVersion)return;
-    state.selected=record.execution;state.selectedPublish=record.id;openInspector('Publish');
+    state.selected=record.execution;state.selectedPublish=record.id;state.selectedReceive=null;openInspector('Publish');
     const fields=[['Node',record.node_name||'Unknown'],['Topic',record.topic||'Unknown'],
       ['Time',exactSeconds(record.timestamp_ns)],['Process',`${record.process_name||'Unknown'} [${record.pid}]`],
       ['Thread',String(record.tid)],['Message address',record.message_pointer],
@@ -243,6 +246,20 @@ async function inspectTopic(name){
       if(list.length<record[total])dl.append(el('dd',{},`${record[total]-list.length} more recorded endpoints`));
     }
     $('selection').replaceChildren(el('h3',{},record.topic),dl);
+  }catch(error){if(version===inspectorVersion)showError(error);}
+}
+async function selectReceive(id){
+  const version=++inspectorVersion;
+  try{
+    const record=await api(`receives/${id}`,state.parameters());if(version!==inspectorVersion)return;
+    state.selected=null;state.selectedPublish=null;state.selectedReceive=record.id;openInspector('Receive');
+    const dl=el('dl');
+    for(const [label,value] of [['Action',record.action],['Channel',record.action_role],
+      ['Topic',record.topic],['Time',exactSeconds(record.timestamp_ns)],
+      ['Process',`${record.process_name||'Unknown'} [${record.pid}]`],['Thread',String(record.tid)],
+      ['Tracepoint','ros2:rmw_take (taken=true)'],['Callback','Not recorded']])
+      dl.append(el('div',{},el('dt',{},label),el('dd',{},value)));
+    $('selection').replaceChildren(el('h3',{},record.node_name||'Unknown node'),dl);timeline.draw();
   }catch(error){if(version===inspectorVersion)showError(error);}
 }
 async function inspectService(name){
@@ -337,6 +354,7 @@ async function boot(){
     facet('cpus',dimensions.cpus.map(value=>({value,label:`CPU ${value}`})));
     facet('topics',dimensions.topics.map(value=>({value,label:value})));
     facet('services',dimensions.services.map(value=>({value,label:value})));
+    facet('actions',(dimensions.actions||[]).map(value=>({value,label:value})));
     await timeline.init();await tree.init();
     if(!info.known_execution_count&&info.action_count)view('actions');
   }catch(error){showError(error);$('activity').textContent='Unable to load';}

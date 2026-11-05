@@ -82,15 +82,15 @@ def test_transport_only_action_without_callback_spans(make_repository):
 
 def test_action_filters_preserve_resource_independence(make_repository):
     repo = make_repository(action_events())[0]
-    f = Filters(topics=(ACTION+'/_action/feedback',), services=('__none__',))
+    f = Filters(topics=('__none__',), services=('__none__',), actions=(ACTION,))
     row = repo.actions(f)['items'][0]
-    assert list(channels(row)) == ['feedback']
+    assert len(channels(row)) == 5
     assert row['recorded_roles'] == ['cancel_goal', 'feedback', 'get_result', 'send_goal', 'status']
-    assert repo.actions(replace(f, topics=('__none__',)))['total'] == 0
+    assert repo.actions(replace(f, actions=('__none__',)))['total'] == 0
     row = repo.actions(Filters(topics=('__none__',)))['items'][0]
-    assert set(channels(row)) == {'send_goal', 'cancel_goal', 'get_result'}
+    assert len(channels(row)) == 5
     row = repo.actions(Filters(services=('__none__',)))['items'][0]
-    assert set(channels(row)) == {'feedback', 'status'}
+    assert len(channels(row)) == 5
     assert repo.actions(Filters(none=True))['items'] == []
     assert repo.actions(Filters(search='not present'))['items'] == []
     assert repo.actions(Filters(exclude_default_services=True))['total'] == 1

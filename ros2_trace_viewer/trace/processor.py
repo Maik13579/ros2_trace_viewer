@@ -11,7 +11,7 @@ import json
 from .associations import Associations
 from .models import INDICES
 from .messages import MessageProcessor
-from .action_names import recorded_action_roles
+from .action_names import index_actions, recorded_action_roles
 
 
 class Processor:
@@ -155,6 +155,7 @@ class Processor:
         self.counts['missing_end'] += sum(map(len, self.stacks.values()))
         self.flush()
         self.messages.finalize(self.origin or 0)
+        index_actions(self.db)
         self.db.executescript(INDICES)
         self.db.execute('''INSERT INTO cpu_segments(execution_id,cpu,start_ns,end_ns)
             SELECT e.id,s.cpu,max(e.start_ns,s.start_ns),min(e.end_ns,s.end_ns)

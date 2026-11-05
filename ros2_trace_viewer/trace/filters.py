@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from .service_names import default_service_predicate
+from .action_names import action_member
 
 
 MAX_NS = 2**63 - 1
@@ -40,6 +41,7 @@ class Filters:
     known_only: bool = True
     topics: tuple = ()
     services: tuple = ()
+    actions: tuple = ()
     exclude_default_services: bool = False
     include_selection: bool = False
     include_processes: tuple = ()
@@ -49,7 +51,7 @@ class Filters:
     @classmethod
     def parse(cls, query):
         values = {}
-        for key in (*LIST_FIELDS, 'topics', 'cpus', 'exclude_processes', 'exclude_nodes', 'exclude_callbacks', 'include_processes', 'include_nodes', 'include_callbacks'):
+        for key in (*LIST_FIELDS, 'topics', 'actions', 'cpus', 'exclude_processes', 'exclude_nodes', 'exclude_callbacks', 'include_processes', 'include_nodes', 'include_callbacks'):
             raw = query.get(key, '')
             if len(raw) > 24000:
                 raise ValueError('Filter selection is too large')
@@ -100,7 +102,7 @@ class Filters:
                 selected = f'{column} IN ({",".join("?" for _ in values)})'
                 # Resource selections constrain their own callback category.
                 # Selecting services must not remove topic/timer callbacks.
-                clauses.append(f"(c.type!='service' OR {selected})" if key=='services' else selected)
+                clauses.append(f"(c.type!='service' OR {action_member('c.service','service')} OR {selected})" if key=='services' else selected)
                 params.extend(values)
         for key in ('processes', 'nodes', 'callbacks'):
             values = getattr(self, 'exclude_' + key)
@@ -118,9 +120,14 @@ class Filters:
         if self.topics:
             marks = ','.join('?' for _ in self.topics)
             # A service invocation does not need an input/output topic match.
-            clauses.append(f"(c.type='service' OR c.topic IN ({marks}) OR EXISTS "
+            clauses.append(f"(c.type='service' OR EXISTS (SELECT 1 FROM execution_actions ax WHERE ax.execution_id=e.id) OR c.topic IN ({marks}) OR EXISTS "
                            f'(SELECT 1 FROM publications ft WHERE ft.execution_id=e.id AND ft.topic IN ({marks})))')
             params.extend([*self.topics, *self.topics])
+        if self.actions:
+            clauses.append('(NOT EXISTS (SELECT 1 FROM execution_actions ax WHERE ax.execution_id=e.id) '
+                'OR EXISTS (SELECT 1 FROM execution_actions ax WHERE ax.execution_id=e.id '
+                f'AND ax.action IN ({",".join("?" for _ in self.actions)})))')
+            params.extend(self.actions)
         if self.cpus:
             clauses.append('EXISTS (SELECT 1 FROM cpu_segments fs WHERE fs.execution_id=e.id '
                            f'AND fs.cpu IN ({",".join("?" for _ in self.cpus)}))')

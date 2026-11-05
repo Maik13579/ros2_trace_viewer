@@ -32,6 +32,10 @@ CREATE TABLE executions(id INTEGER PRIMARY KEY, callback_id TEXT, pid INTEGER,
 CREATE TABLE execution_topics(execution_id INTEGER, topic TEXT,
                              subscription INTEGER, publish_count INTEGER,
                              PRIMARY KEY(execution_id,topic));
+CREATE TABLE action_channels(transport TEXT, name TEXT, action TEXT, role TEXT,
+                             PRIMARY KEY(transport,name));
+CREATE TABLE execution_actions(execution_id INTEGER, action TEXT,
+                               PRIMARY KEY(execution_id,action));
 CREATE VIRTUAL TABLE intervals USING rtree(id, start_s, end_s);
 CREATE TABLE scheduler(tid INTEGER, cpu INTEGER, start_ns INTEGER, end_ns INTEGER);
 CREATE TABLE cpu_segments(id INTEGER PRIMARY KEY, execution_id INTEGER,
@@ -53,6 +57,8 @@ CREATE INDEX receives_topics ON topic_receives(topic,timestamp_ns);
 CREATE INDEX endpoint_topics ON endpoints(topic,kind);
 CREATE INDEX endpoint_services ON service_endpoints(name,kind);
 CREATE INDEX execution_topic_lanes ON execution_topics(topic,execution_id);
+CREATE INDEX action_channel_names ON action_channels(action,transport,name);
+CREATE INDEX action_executions ON execution_actions(action,execution_id);
 ANALYZE;
 '''
 

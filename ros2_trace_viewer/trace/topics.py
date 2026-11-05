@@ -2,6 +2,7 @@
 from dataclasses import replace
 
 from .filters import JOIN, MAX_NS
+from .action_names import accepts_resource, action_channel, resource_scope
 
 
 def owner_scope(filters, pid, node, tid=None):
@@ -38,7 +39,7 @@ def publication_scope(filters):
     """A publication predicate shared by topic statistics and topic columns."""
     original_search = filters.search
     strict = callback_scope(filters)
-    base, params = replace(filters, search='', topics=()).sql()
+    base, params = replace(filters, search='', topics=(), actions=()).sql()
     direct, direct_params = owner_scope(filters, 'pub.pid', 'pub.node_id', 'pub.tid')
     where = f'(pub.execution_id IS NOT NULL AND ({base}))'
     if not strict:
@@ -52,13 +53,14 @@ def publication_scope(filters):
     if original_search:
         where += " AND instr(lower(coalesce(pub.topic,'')||' '||coalesce(pn.name,'')||' '||coalesce(n.name,'')||' '||coalesce(c.topic,'')||' '||coalesce(c.service,'')||' '||coalesce(c.symbol,'')||' '||coalesce(p.name,'')),lower(?))>0"
         params.append(original_search)
-    if filters.topics:
-        where += f' AND pub.topic IN ({",".join("?" for _ in filters.topics)})'
-        params.extend(filters.topics)
+    resources, values = resource_scope(filters, 'pub.topic', 'topic')
+    where += f' AND ({resources})'
+    params.extend(values)
     return source, where, params
 
 
-def topic_data(db, filters, trace_end, search='', offset=0, limit=50, topic=None):
+def topic_data(db, filters, trace_end, search='', offset=0, limit=50, topic=None,
+               include_actions=False):
     """Counts use selected timestamps; metadata lists recorded same-topic endpoints.
 
     Publish activity follows callback filters when attribution exists. Receive
@@ -110,8 +112,9 @@ def topic_data(db, filters, trace_end, search='', offset=0, limit=50, topic=None
             WHERE {condition} AND ep.created_ns<=?''', [*scope_params, filters.end])}
     candidates = set(published) | set(received) | set(callbacks) | scoped
     candidates.discard(None)
-    if filters.topics:
-        candidates &= set(filters.topics)
+    candidates = {name for name in candidates if accepts_resource(filters, name, 'topic')}
+    if not include_actions and topic is None:
+        candidates = {name for name in candidates if not action_channel(name, 'topic')}
     if filters.none:
         candidates.clear()
     if topic is not None:

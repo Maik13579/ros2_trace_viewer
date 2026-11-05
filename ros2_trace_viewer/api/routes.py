@@ -66,6 +66,13 @@ def create_router(repository):
             raise HTTPException(404, 'Publish event not found')
         return result
 
+    @router.get('/receives/{receive_id}')
+    def receive(receive_id: int, request: Request):
+        result = repository.receive(receive_id,filters(request))
+        if result is None:
+            raise HTTPException(404, 'Receive event not found')
+        return result
+
     @router.get('/timers')
     def timers(request: Request, sort: str = 'total_ns', descending: bool = True,
                offset: int = Query(0,ge=0),limit: int = Query(50,ge=1,le=100)):

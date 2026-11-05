@@ -12,8 +12,10 @@ from .publications import add_publish_markers, get_publication, list_publication
 from .topics import topic_data
 from .services import service_data
 from .actions import action_data
+from .action_timeline import action_timeline, get_receive
 from .communication_timeline import communication_lanes, communication_timeline
 from .service_names import is_default_service
+from .action_names import action_channel
 
 GROUPS = {
     'process': ('CAST(e.pid AS TEXT)', "coalesce(p.name,'Unknown process')||' ['||e.pid||']'"),
@@ -101,13 +103,16 @@ class Repository:
 
     def dimensions(self):
         with self.connect() as db:
-            services = [r[0] for r in db.execute('SELECT DISTINCT name FROM service_endpoints ORDER BY name')]
+            services = [r[0] for r in db.execute('SELECT DISTINCT name FROM service_endpoints ORDER BY name')
+                        if not action_channel(r[0], 'service')]
             return {
                 'threads': [dict(r) for r in db.execute(
                     'SELECT DISTINCT pid,tid FROM executions ORDER BY pid,tid')],
                 'cpus': [r[0] for r in db.execute('SELECT DISTINCT cpu FROM cpu_segments ORDER BY cpu')],
-                'topics': [r[0] for r in db.execute('SELECT DISTINCT topic FROM endpoints ORDER BY topic')],
+                'topics': [r[0] for r in db.execute('SELECT DISTINCT topic FROM endpoints ORDER BY topic')
+                           if not action_channel(r[0], 'topic')],
                 'services': services,
+                'actions': [r[0] for r in db.execute('SELECT DISTINCT action FROM action_channels ORDER BY action')],
                 'default_services': [name for name in services if is_default_service(name)],
                 'types': [r[0] for r in db.execute('SELECT DISTINCT type FROM callbacks ORDER BY type')],
             }
@@ -161,6 +166,10 @@ class Repository:
         if result is not None:
             result['execution'] = self.execution(result['execution_id'],filters) if result['execution_id'] is not None else None
         return result
+
+    def receive(self, receive_id, filters):
+        with self.connect() as db:
+            return get_receive(db, receive_id, filters)
 
     def publications(self, execution_id, offset=0, limit=20, filters=None):
         with self.connect() as db:
@@ -230,6 +239,11 @@ class Repository:
     @lru_cache(maxsize=16)
     def timeline(self, filters, grouping, view_start, view_end, lane_offset=0,
                  lane_limit=24, budget=10000, bins=256):
+        if grouping == 'action':
+            lanes = [{'id': item['action'], 'label': item['action']} for item in self._actions(filters)]
+            with self.connect() as db:
+                return action_timeline(db,filters,lanes,view_start,view_end,lane_offset,lane_limit,
+                                       budget,bins,EXECUTION_FIELDS,execution_dict)
         if grouping in ('topic','service'):
             lanes=self.communication_lanes(filters,grouping)
             with self.connect() as db:

@@ -26,8 +26,8 @@ class Heap {
 }
 
 export class Timeline {
-  constructor(onSelect, onPublish) {
-    this.onSelect = onSelect; this.onPublish=onPublish; this.canvas = $('timeline'); this.scroll = $('timeline-scroll');
+  constructor(onSelect, onPublish, onReceive) {
+    this.onSelect = onSelect; this.onPublish=onPublish;this.onReceive=onReceive; this.canvas = $('timeline'); this.scroll = $('timeline-scroll');
     this.start = 0; this.span = 1; this.laneOffset = 0; this.data = null; this.hits = [];
     this.refreshSoon = debounce(() => this.refresh(), 70);
     this.scroll.addEventListener('scroll', () => {
@@ -48,8 +48,9 @@ export class Timeline {
     this.canvas.addEventListener('mouseleave', () => { $('tooltip').hidden = true; });
     this.canvas.addEventListener('click', event => {
       const hit = this.hit(event);
-      if(hit)state.selectedLane=hit.record?.lane??hit.publication?.lane;
+      if(hit)state.selectedLane=hit.record?.lane??hit.publication?.lane??hit.receive?.lane;
       if (hit?.publication?.id) this.onPublish(hit.publication.id);
+      else if(hit?.receive?.id)this.onReceive(hit.receive.id);
       else if (hit?.record) this.onSelect(hit.record.id);
 
     });
@@ -66,7 +67,7 @@ export class Timeline {
     $('lanes-prev').onclick = () => { this.laneOffset = Math.max(0, this.laneOffset - this.laneLimit); this.refresh(); };
     $('lanes-next').onclick = () => { this.laneOffset += this.laneLimit; this.refresh(); };
     state.events.addEventListener('filters', () => {
-      state.selected=null;state.selectedPublish=null;
+      state.selected=null;state.selectedPublish=null;state.selectedReceive=null;
       this.laneOffset = 0;
       const range=this.bounds(),key=`${range.start}:${range.end}`;
       if(key!==this.rangeKey){this.rangeKey=key;this.setViewport(range.start,range.duration);}
@@ -133,8 +134,9 @@ export class Timeline {
         lane_offset: this.laneOffset, lane_limit: this.laneLimit,
         budget: Math.min(12000, Math.max(1000, Math.round(this.height * this.laneLimit)))}), this.controller.signal);
       this.data = data;
-      $('publish-legend').hidden=state.grouping==='service'||!state.info.capabilities.publish_markers;
-      $('publish-legend').textContent=state.grouping==='topic'?'◆ Publish · ▬ Callback':'─ Publish (zoom in)';
+      $('publish-legend').hidden=state.grouping==='action'?!state.info.capabilities.action_transport:state.grouping==='service'||!state.info.capabilities.publish_markers;
+      $('publish-legend').textContent=state.grouping==='action'?'◆ Publish · ○ Receive · ▬ Callback':state.grouping==='topic'?'◆ Publish · ▬ Callback':'─ Publish (zoom in)';
+      $('publish-legend').title=state.grouping==='action'?'Observed feedback/status transport and recorded callback spans. Goal duration and outcomes are not recorded.':'Publish ticks appear inside callback bars when zoomed in.';
       $('lane-head').replaceChildren(...data.lanes.map(lane => el('div', {title: lane.label}, state.grouping === 'node' ? lane.label.replace(/ \[\d+\]$/, '') : lane.label)));
       $('lane-page').textContent = data.total_lanes ? `${this.laneOffset + 1}–${this.laneOffset + data.lanes.length} / ${data.total_lanes}` : 'No columns';
       $('lanes-prev').disabled = this.laneOffset === 0;
@@ -184,7 +186,7 @@ export class Timeline {
           const slot = free.peek() === undefined ? slots++ : free.pop(); active.push({end, slot});
           return {record, start, end, slot};
         });
-        const gutter=state.grouping==='topic'?20:0;
+        const gutter=state.grouping==='action'?40:state.grouping==='topic'?20:0;
         const slotWidth = (laneWidth - 12-gutter) / Math.max(slots, 1);
         for (const item of positioned) {
           const {record, start, end, slot} = item;
@@ -200,7 +202,7 @@ export class Timeline {
           this.hits.push(rect);this.barRects.push(rect);
         }
       });
-    } else { ctx.fillStyle = '#8c9bb0'; ctx.fillText('No callback executions match this selection.', axis + 15, 45); }
+    } else { ctx.fillStyle = '#8c9bb0'; ctx.fillText(state.grouping==='action'?'No action channels match this selection.':'No callback executions match this selection.', axis + 15, 45); }
     for(const r of selectedHits){
       const hh=Math.max(8,r.height),yy=r.y-(hh-r.height)/2;
       ctx.save();ctx.shadowColor='#ffd877';ctx.shadowBlur=12;ctx.fillStyle='#ffd877';
@@ -226,28 +228,32 @@ export class Timeline {
       }
     }
     // Publish observations live in the topic gutter, separate from subscription bars.
-    for(const publication of data?.publications||[]){
+    const observations=[...(data?.publications||[]).map(point=>({point,receive:false})),...(data?.receives||[]).map(point=>({point,receive:true}))];
+    for(const {point:publication,receive} of observations){
       const index=data.lanes.findIndex(lane=>lane.id===publication.lane);
       if(index<0)continue;
-      const laneWidth=(w-axis)/data.lanes.length,px=axis+index*laneWidth+12;
+      const laneWidth=(w-axis)/data.lanes.length,px=axis+index*laneWidth+(receive?28:12);
       const py=(seconds(publication.timestamp_ns)-this.start)/this.span*h;
       if(py<0||py>h)continue;
-      ctx.save();ctx.fillStyle=state.selectedPublish===publication.id?'#ffbd58':'#a2bfff';
+      ctx.save();ctx.fillStyle=(receive?state.selectedReceive:state.selectedPublish)===publication.id&&publication.id!=null?'#ffbd58':receive?'#7dd6c3':'#a2bfff';
       if(publication.count){
         const bottom=(seconds(publication.end_ns)-this.start)/this.span*h;
         ctx.globalAlpha=.75;ctx.fillRect(px-3,py,6,Math.max(3,bottom-py));
+      }else if(receive){
+        ctx.strokeStyle=ctx.fillStyle;ctx.lineWidth=2;ctx.beginPath();ctx.arc(px,py,4,0,Math.PI*2);ctx.stroke();
       }else{
         ctx.beginPath();ctx.moveTo(px,py-4);ctx.lineTo(px+4,py);ctx.lineTo(px,py+4);ctx.lineTo(px-4,py);ctx.closePath();ctx.fill();
       }
       ctx.restore();
-      publishHits.push({x:px-6,y:py-4,width:12,height:Math.max(8,publication.count?(seconds(publication.end_ns)-seconds(publication.timestamp_ns))/this.span*h:8),publication});
+      publishHits.push({x:px-6,y:py-4,width:12,height:Math.max(8,publication.count?(seconds(publication.end_ns)-seconds(publication.timestamp_ns))/this.span*h:8),[receive?'receive':'publication']:publication});
     }
     this.hits.push(...publishHits);this.publishHits=publishHits;
     this.canvas.dataset.publishTicks=String(publishHits.filter(hit=>hit.record).length);
-    this.canvas.dataset.publishPoints=String(publishHits.filter(hit=>!hit.record).length);
+    this.canvas.dataset.publishPoints=String(publishHits.filter(hit=>!hit.record&&hit.publication).length);
+    this.canvas.dataset.receivePoints=String(publishHits.filter(hit=>hit.receive).length);
     $('zoom-label').textContent = duration(this.span * 1e9);
     this.canvas.dataset.startTime=this.start.toFixed(12);this.canvas.dataset.timeSpan=this.span.toFixed(12);
-    $('viewport-label').textContent = `${this.start.toFixed(6)} → ${(this.start + this.span).toFixed(6)} s`;
+    $('viewport-label').textContent = `${this.start.toFixed(6)} → ${(this.start + this.span).toFixed(6)} s${state.grouping==='action'?' · Recorded transport / callback spans':''}`;
     this.drawOverview();
   }
   hit(event) {
@@ -257,9 +263,10 @@ export class Timeline {
   hover(event) {
     const item = this.hit(event), tooltip = $('tooltip');
     tooltip.hidden = !item; if (!item) return;
-    const record=item.record;
+    const record=item.record,point=item.publication||item.receive;
     const role=record&&state.grouping==='topic'?`${record.topic_subscription?'Subscribes':''}${record.topic_subscription&&record.topic_publish_count?' · ':''}${record.topic_publish_count?`Publishes (${record.topic_publish_count})`:''} · ${record.lane}`:record?.publish_count?`${record.publish_count} publishes`:'';
-    const text=item.publication?[item.publication.count?item.publication.topic:publicationLabel(item.publication),item.publication.count?`${item.publication.count} publishes`:'Publish',`${seconds(item.publication.timestamp_ns).toFixed(9)} s`]:record?[callbackLabel(record),duration(record.duration_ns),`${callbackType(record)}${role?' · '+role:''}`]:[`${item.count.toLocaleString()} callbacks`,'Use + to zoom in'];
+    const direction=item.receive?'Receive':'Publish',channel=point?.action_role;
+    const text=point?[point.count?(point.topic||point.action):publicationLabel(point),`${channel?channel[0].toUpperCase()+channel.slice(1)+' · ':''}${point.count?`${point.count} ${direction.toLowerCase()} events`:direction}`,`${seconds(point.timestamp_ns).toFixed(9)} s`]:record?[callbackLabel(record),duration(record.duration_ns),`${callbackType(record)}${role?' · '+role:''}`]:[`${item.count.toLocaleString()} callbacks`,'Use + to zoom in'];
     tooltip.replaceChildren(...text.map((t,index) => el(index === 2 ? 'small' : 'div', {}, t)));
     tooltip.style.left = `${Math.max(5, Math.min(window.innerWidth - 390, event.clientX + 14))}px`;
     tooltip.style.top = `${Math.min(window.innerHeight - 100, event.clientY + 15)}px`;
@@ -267,7 +274,18 @@ export class Timeline {
   async overview() {
     if (!state.info) return;
     const version = this.overviewVersion = (this.overviewVersion || 0) + 1;
-    try { const result = await api('charts', state.parameters()); if (version === this.overviewVersion) { this.overviewData = result.over_time; this.drawOverview(); } }
+    try {
+      let rows;
+      if(state.grouping==='action'){
+        const range=this.bounds(),data=await api('timeline',state.parameters({grouping:'action',view_start:range.start.toFixed(9),view_end:range.end.toFixed(9),lane_offset:this.laneOffset,lane_limit:64,budget:128,bins:64}));
+        const bins=Array(64).fill(0);
+        for(const point of [...data.publications,...data.receives])bins[Math.max(0,Math.min(63,Math.floor((seconds(point.timestamp_ns)-range.start)/range.duration*64)))]+=point.count||1;
+        for(const row of data.records)bins[Math.max(0,Math.min(63,Math.floor((seconds(row.start_ns)-range.start)/range.duration*64)))]++;
+        for(const cell of data.density||[])bins[Math.max(0,Math.min(63,Math.floor((seconds(data.start_ns)+cell.bin*data.step_ns/1e9-range.start)/range.duration*64)))]+=cell.count;
+        rows=bins.map((count,index)=>({count,start_ns:String(Math.round((range.start+index/64*range.duration)*1e9))}));
+      }else rows=(await api('charts',state.parameters())).over_time;
+      if (version === this.overviewVersion) { this.overviewData=rows; this.drawOverview(); }
+    }
     catch (error) { showError(error); }
   }
   drawOverview() {

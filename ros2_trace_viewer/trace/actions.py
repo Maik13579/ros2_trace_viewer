@@ -7,8 +7,8 @@ from .services import service_data
 def action_data(db, filters, trace_end):
     """Aggregate metadata and counters, never goal states or inferred durations.
 
-    Topic and service choices remain independent. Only channels accepted by the
-    corresponding resource query enter the response. Peers are recorded endpoint
+    Ordinary topic/service choices are independent of the Actions selection.
+    Only accepted action channels enter the response. Peers are recorded endpoint
     declarations; they do not establish which client sent a particular goal.
     The repository caches these metadata-sized results before bounded paging.
     """
@@ -19,8 +19,8 @@ def action_data(db, filters, trace_end):
     # These internal queries aggregate in SQLite, not Python execution arrays.
     # The HTTP response is paginated separately after grouping the five roles.
     for transport, data in (
-        ('topic', topic_data(db, filters, trace_end, limit=2**63-1)),
-        ('service', service_data(db, filters, trace_end, limit=2**63-1)),
+        ('topic', topic_data(db, filters, trace_end, limit=2**63-1, include_actions=True)),
+        ('service', service_data(db, filters, trace_end, limit=2**63-1, include_actions=True)),
     ):
         for channel in data['items']:
             parsed = action_channel(channel[transport], transport)
