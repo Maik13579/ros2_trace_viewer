@@ -1,0 +1,5 @@
+include package.xml README.md LICENSE
+recursive-include resource *
+recursive-include ros2_trace_viewer/static *
+recursive-include frontend *
+recursive-include test *.py

@@ -1,0 +1,34 @@
+name: Build and run ROS2 tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        rosdistro: [humble, jazzy, lyrical]
+
+    runs-on: ubuntu-latest
+
+    continue-on-error: true
+
+    container:
+      image: ros:${{ matrix.rosdistro }}-ros-base
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          path: src/ros2_trace_viewer
+
+      - name: Install dependencies
+        run: rosdep update --include-eol-distros && apt-get update && rosdep install --from-path . -i -y --rosdistro ${{ matrix.rosdistro }}
+
+      - name: Build tests
+        run: . /opt/ros/${{ matrix.rosdistro }}/setup.sh && colcon build --event-handlers console_cohesion+
+
+      - name: Run tests
+        run: . /opt/ros/${{ matrix.rosdistro }}/setup.sh && colcon test --event-handlers console_cohesion+ && colcon test-result --verbose
