@@ -28,7 +28,13 @@ jobs:
         run: rosdep update --include-eol-distros && apt-get update && rosdep install --from-path . -i -y --rosdistro ${{ matrix.rosdistro }}
 
       - name: Build tests
-        run: . /opt/ros/${{ matrix.rosdistro }}/setup.sh && colcon build --event-handlers console_cohesion+
+        run: |
+          . /opt/ros/${{ matrix.rosdistro }}/setup.sh
+          colcon build --base-paths src --packages-select ros2_trace_viewer --event-handlers console_cohesion+
 
       - name: Run tests
-        run: . /opt/ros/${{ matrix.rosdistro }}/setup.sh && colcon test --event-handlers console_cohesion+ && colcon test-result --verbose
+        run: |
+          . /opt/ros/${{ matrix.rosdistro }}/setup.sh
+          . install/setup.sh
+          colcon test --base-paths src --packages-select ros2_trace_viewer --python-testing pytest --event-handlers console_cohesion+
+          colcon test-result --verbose
