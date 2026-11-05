@@ -1,5 +1,5 @@
 /** Action transport groups. Goal payloads and action handler spans are unknown. */
-import {$, el, api, state, exactSeconds, showError} from './shared.js';
+import {$, el, api, state, exactSeconds, duration, showError} from './shared.js';
 
 const labels={send_goal:'Send goal',cancel_goal:'Cancel goal',get_result:'Get result',feedback:'Feedback',status:'Status'};
 
@@ -19,6 +19,8 @@ export function actionDetails(record,onTopic,onService) {
     ['Visible channels',String(record.channels.length)],
     ['Action type',record.action_type||'Not recorded'],
     ['Goal IDs / timing','Not recorded'],
+    ['Measured callback executions',record.callback_timing_available?record.execution_count.toLocaleString():'Not recorded'],
+    ['Accumulated callback duration',record.callback_timing_available?duration(record.total_callback_ns):'Not recorded'],
     ['First transport activity',record.first_ns==null?'—':exactSeconds(record.first_ns)],
     ['Last transport activity',record.last_ns==null?'—':exactSeconds(record.last_ns)]];
   fields.forEach(([title,value])=>metadata.append(el('div',{},el('dt',{},title),el('dd',{},value))));

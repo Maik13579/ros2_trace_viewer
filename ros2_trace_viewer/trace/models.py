@@ -10,7 +10,8 @@ CREATE TABLE processes(pid INTEGER PRIMARY KEY, name TEXT);
 CREATE TABLE nodes(id TEXT PRIMARY KEY, pid INTEGER, name TEXT);
 CREATE TABLE callbacks(id TEXT PRIMARY KEY, pid INTEGER, pointer TEXT,
                        node_id TEXT, type TEXT, symbol TEXT, initialized INTEGER, topic TEXT,
-                       service TEXT, timer_period_ns INTEGER);
+                       service TEXT, timer_period_ns INTEGER, action TEXT,
+                       action_role TEXT, action_side TEXT);
 CREATE TABLE endpoints(id TEXT PRIMARY KEY, pid INTEGER, kind TEXT, node_id TEXT,
                        topic TEXT, handle TEXT, rmw_handle TEXT, queue_depth INTEGER,
                        created_ns INTEGER);
@@ -22,6 +23,10 @@ CREATE TABLE publications(id INTEGER PRIMARY KEY, scope_id INTEGER, execution_id
                           endpoint_id TEXT, node_id TEXT, topic TEXT, layers INTEGER,
                           source_timestamp INTEGER);
 CREATE INDEX publications_scopes ON publications(scope_id);
+CREATE TABLE client_calls(id INTEGER PRIMARY KEY,pid INTEGER,call_id INTEGER,scope_id INTEGER,
+    execution_id INTEGER,tid INTEGER,timestamp_ns INTEGER,node_id TEXT,service TEXT,
+    request_id INTEGER,wait_for_response INTEGER,wait_end_ns INTEGER,UNIQUE(pid,call_id));
+CREATE INDEX calls_scopes ON client_calls(scope_id);
 CREATE TABLE publication_counts(execution_id INTEGER PRIMARY KEY, count INTEGER);
 CREATE TABLE topic_receives(topic TEXT, pid INTEGER, tid INTEGER, node_id TEXT,
                            timestamp_ns INTEGER);
@@ -36,6 +41,8 @@ CREATE TABLE action_channels(transport TEXT, name TEXT, action TEXT, role TEXT,
                              PRIMARY KEY(transport,name));
 CREATE TABLE execution_actions(execution_id INTEGER, action TEXT,
                                PRIMARY KEY(execution_id,action));
+CREATE TABLE execution_services(execution_id INTEGER,service TEXT,
+    server_callback INTEGER,call_count INTEGER,PRIMARY KEY(execution_id,service));
 CREATE VIRTUAL TABLE intervals USING rtree(id, start_s, end_s);
 CREATE TABLE scheduler(tid INTEGER, cpu INTEGER, start_ns INTEGER, end_ns INTEGER);
 CREATE TABLE cpu_segments(id INTEGER PRIMARY KEY, execution_id INTEGER,
@@ -59,6 +66,9 @@ CREATE INDEX endpoint_services ON service_endpoints(name,kind);
 CREATE INDEX execution_topic_lanes ON execution_topics(topic,execution_id);
 CREATE INDEX action_channel_names ON action_channels(action,transport,name);
 CREATE INDEX action_executions ON execution_actions(action,execution_id);
+CREATE INDEX calls_executions ON client_calls(execution_id,timestamp_ns);
+CREATE INDEX calls_services ON client_calls(service,timestamp_ns);
+CREATE INDEX execution_service_lanes ON execution_services(service,execution_id);
 ANALYZE;
 '''
 

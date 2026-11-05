@@ -3,3 +3,4 @@ recursive-include resource *
 recursive-include ros2_trace_viewer/static *
 recursive-include frontend *
 recursive-include test *.py
+recursive-include test/action_demo *.h *.hpp *.c *.cpp CMakeLists.txt

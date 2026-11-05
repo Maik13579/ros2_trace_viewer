@@ -68,6 +68,7 @@ def statistics(db, filters, level='process', sort='total_ns', descending=True,
     where, params = filters.sql('contained')
     groups = db.execute(f'''SELECT {group} id,{label} name,e.pid,c.node_id,c.type,n.name node_name,
         c.topic callback_topic,c.service callback_service,c.timer_period_ns,
+        c.action callback_action,c.action_role,c.action_side,
         count(*) count,sum_ns(e.duration_ns) total_ns,
         min(e.duration_ns) min_ns,max(e.duration_ns) max_ns,avg(e.duration_ns) mean_ns
         FROM {JOIN} WHERE {where} GROUP BY {group}''', params).fetchall()
@@ -83,7 +84,7 @@ def statistics(db, filters, level='process', sort='total_ns', descending=True,
             # Sort by the node/resource label shown in callback lists; keep the
             # original symbol in `name` for the complete metadata inspector.
             key = lambda r: ((r['node_name'] or 'Unknown node').casefold(),
-                             (r['callback_topic'] or r['callback_service'] or '').casefold(),
+                             (r['callback_action'] or r['callback_topic'] or r['callback_service'] or '').casefold(),
                              r['type'],r['id'])
         else:
             key = lambda r: int(r[sort]) if sort == 'total_ns' else r[sort]
@@ -99,6 +100,8 @@ def statistics(db, filters, level='process', sort='total_ns', descending=True,
         rows.append({'id': row['id'], 'name': row['name'], 'pid': row['pid'],
                      'node_id': row['node_id'], 'type': row['type'], 'node_name': row['node_name'],
                      'callback_topic': row['callback_topic'], 'callback_service': row['callback_service'],
+                     'callback_action':row['callback_action'], 'action_role':row['action_role'],
+                     'action_side':row['action_side'],
                      'timer_period_ns': str(row['timer_period_ns']) if level=='callback' and row['timer_period_ns'] is not None else None,
                      **summarize(durations, include_boxplot=include_boxplot)})
     for row in rows:
@@ -145,7 +148,7 @@ def charts(db, filters, bins=64):
         [filters.start, step, *params])]
     for row in over_time:
         row['start_ns'] = str(int(filters.start + row['bin'] * step))
-    top = [dict(r) for r in db.execute(f'''SELECT c.id,coalesce(c.symbol,c.pointer) name,c.type,c.topic callback_topic,c.service callback_service,n.name node_name,
+    top = [dict(r) for r in db.execute(f'''SELECT c.id,coalesce(c.symbol,c.pointer) name,c.type,c.topic callback_topic,c.service callback_service,c.action callback_action,c.action_role,c.action_side,n.name node_name,
         sum_ns(e.duration_ns) total_ns,count(*) count FROM {JOIN} WHERE {where}
         GROUP BY c.id ORDER BY length(total_ns) DESC,total_ns DESC LIMIT 12''', params)]
     return {'histogram': histogram, 'over_time': over_time, 'top': top, 'count': count}

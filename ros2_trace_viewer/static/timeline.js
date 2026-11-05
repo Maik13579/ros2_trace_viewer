@@ -26,8 +26,9 @@ class Heap {
 }
 
 export class Timeline {
-  constructor(onSelect, onPublish, onReceive) {
+  constructor(onSelect, onPublish, onReceive, onCall) {
     this.onSelect = onSelect; this.onPublish=onPublish;this.onReceive=onReceive; this.canvas = $('timeline'); this.scroll = $('timeline-scroll');
+    this.onCall=onCall;
     this.start = 0; this.span = 1; this.laneOffset = 0; this.data = null; this.hits = [];
     this.refreshSoon = debounce(() => this.refresh(), 70);
     this.scroll.addEventListener('scroll', () => {
@@ -49,7 +50,8 @@ export class Timeline {
     this.canvas.addEventListener('click', event => {
       const hit = this.hit(event);
       if(hit)state.selectedLane=hit.record?.lane??hit.publication?.lane??hit.receive?.lane;
-      if (hit?.publication?.id) this.onPublish(hit.publication.id);
+      if(hit?.call?.id)this.onCall(hit.call.id);
+      else if (hit?.publication?.id) this.onPublish(hit.publication.id);
       else if(hit?.receive?.id)this.onReceive(hit.receive.id);
       else if (hit?.record) this.onSelect(hit.record.id);
 
@@ -67,7 +69,7 @@ export class Timeline {
     $('lanes-prev').onclick = () => { this.laneOffset = Math.max(0, this.laneOffset - this.laneLimit); this.refresh(); };
     $('lanes-next').onclick = () => { this.laneOffset += this.laneLimit; this.refresh(); };
     state.events.addEventListener('filters', () => {
-      state.selected=null;state.selectedPublish=null;state.selectedReceive=null;
+      state.selected=null;state.selectedPublish=null;state.selectedReceive=null;state.selectedCall=null;
       this.laneOffset = 0;
       const range=this.bounds(),key=`${range.start}:${range.end}`;
       if(key!==this.rangeKey){this.rangeKey=key;this.setViewport(range.start,range.duration);}
@@ -139,6 +141,7 @@ export class Timeline {
       $('publish-legend').hidden=state.grouping==='action'||owners?!state.info.capabilities.action_transport:state.grouping==='service'||!state.info.capabilities.publish_markers;
       $('publish-legend').textContent=state.grouping==='action'?'◆ Publish · ○ Receive · ▬ Callback':owners?'◆ Action publish · ○ Action receive · ▬ Callback':state.grouping==='topic'?'◆ Publish · ▬ Callback':'─ Publish (zoom in)';
       $('publish-legend').title=state.grouping==='action'||owners?'Observed feedback/status transport and recorded callback spans. Goal duration and outcomes are not recorded.':'Publish ticks appear inside callback bars when zoomed in.';
+      if(state.info.capabilities.call_markers){$('publish-legend').hidden=false;$('publish-legend').textContent+=' · ▸ Call';}
       $('lane-head').replaceChildren(...data.lanes.map(lane => el('div', {title: lane.label}, state.grouping === 'node' ? lane.label.replace(/ \[\d+\]$/, '') : lane.label)));
       $('lane-page').textContent = data.total_lanes ? `${this.laneOffset + 1}–${this.laneOffset + data.lanes.length} / ${data.total_lanes}` : 'No columns';
       $('lanes-prev').disabled = this.laneOffset === 0;
@@ -230,6 +233,21 @@ export class Timeline {
         publishHits.push({x:rect.x,y:py-3,width:rect.width,height:6,record,publication});
       }
     }
+    const callHits=[];
+    for(const rect of this.barRects){
+      for(const call of rect.record.calls||[]){
+        const time=seconds(call.timestamp_ns);if(time<this.start||time>this.start+this.span)continue;
+        const y=(time-this.start)/this.span*h,x=rect.x+rect.width;
+        ctx.save();ctx.strokeStyle=ctx.fillStyle=state.selectedCall===call.id?'#fff3d2':call.kind==='action'?'#ffbd58':'#c6a5ff';
+        if(call.wait_end_ns){
+          const bottom=Math.min(rect.y+rect.height,(seconds(call.wait_end_ns)-this.start)/this.span*h);
+          ctx.globalAlpha=.35;ctx.fillRect(x-5,y,5,Math.max(1,bottom-y));ctx.globalAlpha=1;
+        }
+        if(rect.height>=12){ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(rect.x+2,y);ctx.lineTo(x,y);ctx.stroke();}
+        ctx.beginPath();ctx.moveTo(x+1,y-4);ctx.lineTo(x+7,y);ctx.lineTo(x+1,y+4);ctx.closePath();ctx.fill();ctx.restore();
+        callHits.push({x:x-6,y:y-5,width:16,height:10,record:rect.record,call});
+      }
+    }
     // Publish observations live in the topic gutter, separate from subscription bars.
     const observations=[...(data?.publications||[]).map(point=>({point,receive:false})),...(data?.receives||[]).map(point=>({point,receive:true}))];
     for(const {point:publication,receive} of observations){
@@ -251,6 +269,7 @@ export class Timeline {
       publishHits.push({x:px-6,y:py-4,width:12,height:Math.max(8,publication.count?(seconds(publication.end_ns)-seconds(publication.timestamp_ns))/this.span*h:8),[receive?'receive':'publication']:publication});
     }
     this.hits.push(...publishHits);this.publishHits=publishHits;
+    this.hits.push(...callHits);this.canvas.dataset.callMarkers=String(callHits.length);
     this.canvas.dataset.publishTicks=String(publishHits.filter(hit=>hit.record).length);
     this.canvas.dataset.publishPoints=String(publishHits.filter(hit=>!hit.record&&hit.publication).length);
     this.canvas.dataset.receivePoints=String(publishHits.filter(hit=>hit.receive).length);
@@ -269,7 +288,8 @@ export class Timeline {
     const record=item.record,point=item.publication||item.receive;
     const role=record&&state.grouping==='topic'?`${record.topic_subscription?'Subscribes':''}${record.topic_subscription&&record.topic_publish_count?' · ':''}${record.topic_publish_count?`Publishes (${record.topic_publish_count})`:''} · ${record.lane}`:record?.publish_count?`${record.publish_count} publishes`:'';
     const direction=item.receive?'Receive':'Publish',channel=point?.action_role;
-    const text=point?[point.count?(point.topic||point.action):publicationLabel(point),`${channel?channel[0].toUpperCase()+channel.slice(1)+' · ':''}${point.count?`${point.count} ${direction.toLowerCase()} events`:direction}`,`${seconds(point.timestamp_ns).toFixed(9)} s`]:record?[callbackLabel(record),duration(record.duration_ns),`${callbackType(record)}${role?' · '+role:''}`]:[`${item.count.toLocaleString()} callbacks`,'Use + to zoom in'];
+    const call=item.call;
+    const text=call?[call.action||call.service||'Calls',`${call.count?call.count+' calls':call.kind==='action'?'Action · '+call.operation:'Service call'}${call.wait_for_response?' · waits for response':''}`,`${seconds(call.timestamp_ns).toFixed(9)} s`]:point?[point.count?(point.topic||point.action):publicationLabel(point),`${channel?channel[0].toUpperCase()+channel.slice(1)+' · ':''}${point.count?`${point.count} ${direction.toLowerCase()} events`:direction}`,`${seconds(point.timestamp_ns).toFixed(9)} s`]:record?[callbackLabel(record),duration(record.duration_ns),`${callbackType(record)}${role?' · '+role:''}`]:[`${item.count.toLocaleString()} callbacks`,'Use + to zoom in'];
     tooltip.replaceChildren(...text.map((t,index) => el(index === 2 ? 'small' : 'div', {}, t)));
     tooltip.style.left = `${Math.max(5, Math.min(window.innerWidth - 390, event.clientX + 14))}px`;
     tooltip.style.top = `${Math.min(window.innerHeight - 100, event.clientY + 15)}px`;

@@ -4,6 +4,8 @@ No goal spans, request events or causal edges are synthesized. A successful
 take is a receive observation, not proof of a particular publisher's delivery.
 """
 from .filters import JOIN
+from dataclasses import replace
+from .client_calls import add_call_markers
 from .topics import callback_scope, owner_scope, publication_scope
 from .action_names import resource_scope
 from .publications import add_publish_markers
@@ -133,6 +135,7 @@ def action_timeline(db, filters, all_lanes, start, end, lane_offset, lane_limit,
         # Count and attach only this action's accepted publication channels.
         for lane in lanes:
             records = [row for row in result['records'] if row['lane']==lane['id']]
+            add_call_markers(db,records,start,end,replace(filters,actions=(lane['id'],),services=('__none__',)))
             topics = tuple(row[0] for row in db.execute(
                 "SELECT name FROM action_channels WHERE action=? AND transport='topic'", (lane['id'],)))
             if topics:

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from .filters import JOIN
+from .filters import JOIN,Filters
 from .statistics import charts, statistics
 from .publications import add_publish_markers, get_publication, list_publications, count_publications
 from .topics import topic_data
@@ -16,6 +16,7 @@ from .action_timeline import action_timeline, get_receive, action_event_lanes, a
 from .communication_timeline import communication_lanes, communication_timeline
 from .service_names import is_default_service
 from .action_names import action_channel
+from .client_calls import add_call_markers,get_call,list_calls
 
 GROUPS = {
     'process': ('CAST(e.pid AS TEXT)', "coalesce(p.name,'Unknown process')||' ['||e.pid||']'"),
@@ -25,6 +26,7 @@ GROUPS = {
 }
 EXECUTION_FIELDS = '''e.*, c.pointer callback_identity,c.symbol callback_symbol,
     c.type callback_type,c.topic callback_topic,c.service callback_service,c.timer_period_ns,
+    c.action callback_action,c.action_role,c.action_side,
     c.node_id, n.name node_name,p.name process_name'''
 
 
@@ -75,8 +77,8 @@ class Repository:
                 WHERE c.initialized=1 AND c.node_id IS NULL AND EXISTS
                 (SELECT 1 FROM executions e WHERE e.callback_id=c.id) GROUP BY c.pid) n""", 'n.id,n.pid,n.name', 'n.name'),
             'callbacks': ('''callbacks c LEFT JOIN nodes n ON n.id=c.node_id''',
-                'c.id,c.pid,c.node_id,c.pointer,c.type,c.symbol,n.name node_name,c.topic callback_topic,c.service callback_service',
-                "coalesce(c.service,'')||coalesce(c.topic,'')||coalesce(n.name,'')||coalesce(c.symbol,'')||c.pointer"),
+                'c.id,c.pid,c.node_id,c.pointer,c.type,c.symbol,n.name node_name,c.topic callback_topic,c.service callback_service,c.action callback_action,c.action_role,c.action_side',
+                "coalesce(c.action,'')||coalesce(c.service,'')||coalesce(c.topic,'')||coalesce(n.name,'')||coalesce(c.symbol,'')||c.pointer"),
         }
         source, fields, text = sources[kind]
         where, params = [f"instr(lower(coalesce({text},'')),lower(?))>0"], [search]
@@ -125,6 +127,8 @@ class Repository:
                 return None
             result = execution_dict(row)
             result['publish_count'] = count_publications(db,execution_id,filters)
+            call_filters = filters or Filters()
+            add_call_markers(db,[result],call_filters.start,call_filters.end,call_filters,limit=20)
             result['cpu_intervals'] = [execution_dict(r) for r in db.execute(
                 'SELECT cpu,start_ns,end_ns FROM cpu_segments WHERE execution_id=? ORDER BY start_ns',
                 (execution_id,))]
@@ -146,7 +150,8 @@ class Repository:
         if action is not None:
             items = [item for item in items if item['action'] == action]
         return {'items': items[offset:offset+limit], 'total': len(items),
-                'offset': offset, 'limit': limit, 'transport_only': True,
+                'offset': offset, 'limit': limit,
+                'transport_only':not any(item['callback_timing_available'] for item in items),
                 'association': 'Inferred from standard /_action/ endpoint names. '
                     'Recorded peers are declarations, not per-goal connections.'}
 
@@ -170,6 +175,17 @@ class Repository:
     def receive(self, receive_id, filters):
         with self.connect() as db:
             return get_receive(db, receive_id, filters)
+
+    def client_call(self,identity,filters):
+        with self.connect() as db:
+            result=get_call(db,identity,filters)
+        if result is not None:
+            result['execution']=self.execution(result['execution_id'],filters) if result['execution_id'] is not None else None
+        return result
+
+    def client_calls(self,execution_id,filters,offset=0,limit=20):
+        with self.connect() as db:
+            return list_calls(db,execution_id,filters,offset,limit)
 
     def publications(self, execution_id, offset=0, limit=20, filters=None):
         with self.connect() as db:
@@ -295,6 +311,7 @@ class Repository:
                     row['segment_start_ns'] if grouping == 'cpu' else row['start_ns'],row['id']))]
                 marker_mode = add_publish_markers(db, records, start, end, topics=filters.topics,
                     count_start=filters.start,count_end=filters.end,filters=filters)
+                add_call_markers(db,records,start,end,filters)
                 result = {'mode': 'executions', 'lanes': lanes, 'total_lanes': total_lanes,
                           'records': records, 'publish_markers_mode': marker_mode}
                 return (add_action_observations(db,result,filters,grouping,start,end,budget,bins)

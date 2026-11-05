@@ -15,6 +15,7 @@ EVENTS = {
     'rclcpp_timer_callback_added', 'rclcpp_timer_link_node',
     'rclcpp_callback_register', 'rcl_publisher_init', 'rcl_client_init',
 }
+ACTION_INIT = 'ros2_trace_viewer:action_callback_init'
 
 
 class MetadataModel:
@@ -29,6 +30,7 @@ class MetadataModel:
         self.rmw_subscriptions, self.endpoint_versions = {}, {}
         self.service_info = {}
         self.timer_periods = {}
+        self.action_callbacks = {}
 
     def add_node(self, handle, timestamp, tid, rmw_handle, name, namespace):
         version = self.node_versions.get(handle, 0) + 1
@@ -80,6 +82,7 @@ class MetadataModel:
         self.entities[('timer', handle)] = self.nodes.get(node)
 
     def add_callback_object(self, reference, timestamp, callback):
+        self.action_callbacks.pop(callback,None)
         self.references[callback] = reference
         self.kinds[callback] = self.current_kind
 
@@ -87,6 +90,9 @@ class MetadataModel:
         self.symbols[callback] = symbol
 
     def resolve(self, callback):
+        if callback in self.action_callbacks:
+            info = self.action_callbacks[callback]
+            return self.nodes.get(info['node_handle']), 'action', info['symbol']
         kind = self.kinds.get(callback, 'unknown')
         reference = self.references.get(callback)
         if kind == 'subscription':
@@ -128,6 +134,19 @@ class Associations:
         return self.handlers[pid].data
 
     def consume(self, event, pid):
+        if event['_name'] == ACTION_INIT:
+            # Optional application instrumentation supplies explicit ownership;
+            # no action/handler association is inferred from pointer proximity.
+            callback = int(event['callback'])
+            name, role, side = event['action_name'], event['role'], event['side']
+            if not name.startswith('/') or side not in ('server','client') or not role:
+                raise ValueError('Invalid action callback initialization')
+            model = self.model(pid)
+            model.action_callbacks[callback] = {
+                'node_handle':int(event['node_handle']), 'action':name,
+                'role':role, 'side':side, 'symbol':event['symbol']}
+            model.symbols[callback] = event['symbol']
+            return True
         short = event['_name'].removeprefix('ros2:')
         if short not in EVENTS:
             return False

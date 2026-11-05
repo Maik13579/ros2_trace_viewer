@@ -10,12 +10,16 @@ LAYERS = {'ros2:rclcpp_publish': 1, 'ros2:rcl_publish': 2,
           'ros2:rmw_publish': 4, 'ros2:rclcpp_intra_publish': 8}
 FIELDS = ('id', 'scope_id', 'execution_id', 'pid', 'tid', 'timestamp_ns',
           'message_pointer', 'endpoint_id', 'node_id', 'topic', 'layers', 'source_timestamp')
+CALL_FIELDS = ('pid','call_id','scope_id','execution_id','tid','timestamp_ns',
+               'node_id','service','request_id','wait_for_response')
+CALL_EVENTS = ('ros2_trace_viewer:client_call','ros2_trace_viewer:client_call_end')
 
 
 class MessageProcessor:
     def __init__(self, db, associations, counts):
         self.db, self.associations, self.counts = db, associations, counts
         self.buffer, self.receives = [], []
+        self.calls = []
         self.pending = {}
         self.next_id = self.next_scope = 1
 
@@ -29,6 +33,8 @@ class MessageProcessor:
         if scope['persisted']:
             self.db.execute('UPDATE publications SET execution_id=? WHERE scope_id=?',
                             (execution_id, scope['id']))
+            self.db.execute('UPDATE client_calls SET execution_id=? WHERE scope_id=?',
+                            (execution_id,scope['id']))
         pending = self.pending.get(thread)
         if pending:
             for key, record in list(pending.items()):
@@ -42,6 +48,26 @@ class MessageProcessor:
 
     def consume(self, event, pid, t, scope):
         name = event['_name']
+        if name == CALL_EVENTS[0]:
+            tid = event.get('vtid',event.get('tid'))
+            if tid is None:
+                self.counts['missing_call_context'] += 1
+                return
+            model = self.associations.model(pid)
+            request_id = int(event.get('request_id',-1))
+            self.calls.append(dict(pid=pid,call_id=int(event['call_id']),scope_id=scope['id'] if scope else None,
+                execution_id=None,tid=int(tid),timestamp_ns=t,node_id=model.nodes.get(event['node_handle']),
+                service=event['service_name'],request_id=request_id if request_id>=0 else None,
+                wait_for_response=int(bool(event.get('wait_for_response'))),_scope=scope))
+            self.counts['client_calls'] += 1
+            if len(self.calls)>=8192:self.flush()
+            return
+        if name == CALL_EVENTS[1]:
+            self.flush()
+            self.db.execute('''UPDATE client_calls SET wait_end_ns=? WHERE pid=? AND call_id=?
+                AND wait_for_response=1 AND timestamp_ns<=? AND wait_end_ns IS NULL''',
+                (t,pid,int(event['call_id']),t))
+            return
         if name == 'ros2:rmw_take':
             # Counts are recorded take observations, not distinct global messages.
             if event.get('taken') and event.get('vtid', event.get('tid')) is not None:
@@ -111,6 +137,15 @@ class MessageProcessor:
             self.flush()
 
     def flush(self):
+        if self.calls:
+            for record in self.calls:
+                scope=record['_scope']
+                record['execution_id']=scope['execution_id'] if scope else None
+                if scope:scope['persisted']=True
+            self.db.executemany('''INSERT INTO client_calls
+                (pid,call_id,scope_id,execution_id,tid,timestamp_ns,node_id,service,request_id,wait_for_response)
+                VALUES (?,?,?,?,?,?,?,?,?,?)''',(tuple(row[key] for key in CALL_FIELDS) for row in self.calls))
+            self.calls.clear()
         if self.buffer:
             for record in self.buffer:
                 scope = record['_scope']
@@ -147,3 +182,10 @@ class MessageProcessor:
             'SELECT count(*) FROM publications WHERE topic IS NULL').fetchone()[0]
         self.counts['recorded_receives'] = self.db.execute(
             'SELECT count(*) FROM topic_receives').fetchone()[0]
+        self.db.execute('''INSERT INTO execution_services SELECT e.id,c.service,1,0
+            FROM executions e JOIN callbacks c ON c.id=e.callback_id
+            WHERE c.type='service' AND c.service IS NOT NULL''')
+        self.db.execute('''INSERT INTO execution_services
+            SELECT execution_id,service,0,count(*) FROM client_calls
+            WHERE execution_id IS NOT NULL GROUP BY execution_id,service
+            ON CONFLICT(execution_id,service) DO UPDATE SET call_count=excluded.call_count''')

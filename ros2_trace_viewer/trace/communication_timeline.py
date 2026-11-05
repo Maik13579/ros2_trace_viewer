@@ -10,6 +10,7 @@ from .topics import callback_scope, owner_scope, publication_scope
 from .service_names import is_default_service
 from .action_names import action_channel
 from .topic_names import is_parameter_events
+from .client_calls import add_call_markers,call_scope
 
 
 def communication_lanes(db, filters, grouping):
@@ -21,6 +22,9 @@ def communication_lanes(db, filters, grouping):
         source, pub_where, pub_params = publication_scope(filters)
         names |= {r[0] for r in db.execute(f'SELECT DISTINCT pub.topic FROM {source} '
                   f'WHERE {pub_where} AND pub.topic IS NOT NULL', pub_params)}
+    else:
+        source,call_where,call_params=call_scope(filters)
+        names |= {r[0] for r in db.execute(f'SELECT DISTINCT call.service FROM {source} WHERE {call_where}',call_params)}
     table, column = ('endpoints', 'topic') if grouping == 'topic' else ('service_endpoints', 'name')
     strict = callback_scope(replace(filters, services=() if grouping == 'service' else filters.services))
     selected = filters.topics if grouping == 'topic' else filters.services
@@ -105,8 +109,8 @@ def communication_timeline(db, filters, grouping, all_lanes, start, end, lane_of
         group = 'et.topic'
         extra = ',et.subscription topic_subscription,et.publish_count topic_publish_count'
     else:
-        group, extra = 'c.service', ''
-        where += " AND c.type='service'"
+        source += ' JOIN execution_services es ON es.execution_id=e.id '
+        group, extra = 'es.service', ',es.server_callback service_server_callback,es.call_count service_call_count'
     where += f''' AND {group} IN ({','.join('?' for _ in lanes)})
         AND e.start_ns<=? AND e.end_ns>=? AND r.start_s<=? AND r.end_s>=?'''
     params += [*[lane['id'] for lane in lanes],end,start,end/1e9,start/1e9]
@@ -119,6 +123,7 @@ def communication_timeline(db, filters, grouping, all_lanes, start, end, lane_of
             topics=tuple(lane['id'] for lane in lanes) if grouping=='topic' else filters.topics,
             topic_lanes=grouping=='topic',count_start=filters.start,count_end=filters.end,filters=filters)
         result['records'] = records
+        add_call_markers(db,records,start,end,filters)
     else:
         cells, step = density(db,source,where,params,group,'e.start_ns','e.end_ns',start,end,lanes,bins)
         result.update(mode='density',density=cells,bins=bins,start_ns=str(start),step_ns=step,

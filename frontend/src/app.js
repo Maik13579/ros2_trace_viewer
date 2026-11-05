@@ -8,7 +8,7 @@ import {Services} from './services.js';
 import {Timers} from './timers.js';
 import {Actions, actionDetails} from './actions.js';
 
-const timeline = new Timeline(selectExecution,selectPublication,selectReceive), statistics = new Statistics(inspectStatistics), tree = new FilterTree();
+const timeline = new Timeline(selectExecution,selectPublication,selectReceive,selectCall), statistics = new Statistics(inspectStatistics), tree = new FilterTree();
 const boxplots = new BoxPlots(inspectStatistics),topics=new Topics(inspectTopic);
 const services=new Services(inspectService);
 const timers=new Timers(inspectStatistics);
@@ -185,7 +185,7 @@ async function selectExecution(id){
     details.append(dl,el('div',{class:'selection-actions'},
       el('button',{onclick:()=>adjacent('previous')},'‹ Previous'),el('button',{onclick:()=>adjacent('next')},'Next ›')));
     const metadata=el('dl');
-    const fields=[['Symbol',record.callback_symbol||'Unknown'],['Process',`${record.process_name||'Unknown'} [${record.pid}]`],
+    const fields=[...(record.callback_action?[['Action',record.callback_action],['Handler',record.action_role],['Side',record.action_side]]:[]),['Symbol',record.callback_symbol||'Unknown'],['Process',`${record.process_name||'Unknown'} [${record.pid}]`],
       ['Thread',String(record.tid)],['Type',record.callback_type],['Identity',record.callback_id],
       ['Exact duration',`${record.duration_ns} ns`],['CPU at start / end',`${record.start_cpu??'Unknown'} / ${record.end_cpu??'Unknown'}`]];
     if(record.cpu_intervals.length){
@@ -194,6 +194,10 @@ async function selectExecution(id){
     }
     fields.forEach(([title,value])=>metadata.append(el('div',{},el('dt',{},title),el('dd',{class:'mono'},value))));
     details.append(metadata);timeline.draw();
+    if(record.call_count){
+      const list=el('div',{class:'publish-list'});details.append(el('h3',{class:'publish-list-heading'},`Calls (${record.call_count})`),list);
+      loadCalls(record.id,list,version);
+    }
     if(record.publish_count){
       const list=el('div',{class:'publish-list'});details.append(el('h3',{class:'publish-list-heading'},`Publishes (${record.publish_count})`),list);
       loadPublications(record.id,list,version);
@@ -211,6 +215,37 @@ async function loadPublications(id,target,version,offset=0){
       const next=el('button',{disabled:offset+20>=data.total,onclick:()=>loadPublications(id,target,version,offset+20)},'›');
       target.append(el('div',{class:'publish-list-nav'},prev,`${offset+1}–${Math.min(offset+20,data.total)} / ${data.total}`,next));
     }
+  }catch(error){if(version===inspectorVersion)showError(error);}
+}
+async function loadCalls(id,target,version,offset=0){
+  try{
+    const data=await api(`executions/${id}/calls`,state.parameters({offset,limit:20}));
+    if(version!==inspectorVersion)return;
+    target.replaceChildren(...data.items.map(call=>el('button',{onclick:()=>selectCall(call.id)},
+      `${call.kind==='action'?call.action+' · '+call.operation:call.service}`,
+      el('small',{},`${exactSeconds(call.timestamp_ns)}${call.wait_for_response?' · waits for response':''}`))));
+    if(data.total>20)target.append(el('div',{class:'publish-list-nav'},
+      el('button',{disabled:offset===0,onclick:()=>loadCalls(id,target,version,Math.max(0,offset-20))},'‹'),
+      `${offset+1}–${Math.min(offset+20,data.total)} / ${data.total}`,
+      el('button',{disabled:offset+20>=data.total,onclick:()=>loadCalls(id,target,version,offset+20)},'›')));
+  }catch(error){if(version===inspectorVersion)showError(error);}
+}
+async function selectCall(id){
+  const version=++inspectorVersion;
+  try{
+    const call=await api(`calls/${id}`,state.parameters());if(version!==inspectorVersion)return;
+    state.selected=call.execution;state.selectedCall=call.id;state.selectedPublish=null;state.selectedReceive=null;
+    openInspector(call.kind==='action'?'Action call':'Service call');
+    const fields=[['Node',call.node_name||'Unknown'],['Service',call.service],
+      ...(call.action?[['Action',call.action],['Operation',call.operation]]:[]),
+      ['Time',exactSeconds(call.timestamp_ns)],['Request ID',call.request_id??'Not recorded'],
+      ['Waits for response',call.wait_for_response?'Yes':'No'],
+      ...(call.wait_duration_ns?[['Recorded wait',duration(call.wait_duration_ns)]]:[]),
+      ['Process',String(call.pid)],['Thread',String(call.tid)]];
+    const dl=el('dl');fields.forEach(([label,value])=>dl.append(el('div',{},el('dt',{},label),el('dd',{},value))));
+    $('selection').replaceChildren(el('h3',{},call.action||call.service),dl,
+      ...(call.execution?[el('button',{onclick:()=>selectExecution(call.execution_id)},'Callback details')]:[]));
+    timeline.draw();
   }catch(error){if(version===inspectorVersion)showError(error);}
 }
 async function selectPublication(id){
@@ -274,7 +309,7 @@ async function inspectService(name){
     const result=await api('services',state.parameters({service:name,limit:1}));
     if(version!==inspectorVersion||!result.items.length)return;
     const record=result.items[0];openInspector('Service');
-    const fields=[['Server callbacks',record.execution_count.toLocaleString()],
+    const fields=[['Recorded client calls',record.call_count.toLocaleString()],['Measured blocking waits',String(record.measured_wait_count)],['Server callbacks',record.execution_count.toLocaleString()],
       ['Accumulated duration',duration(record.total_callback_ns)],
       ['Mean duration',record.mean_duration_ns==null?'—':duration(record.mean_duration_ns)],
       ['Minimum',record.min_duration_ns==null?'—':duration(record.min_duration_ns)],
@@ -288,7 +323,7 @@ async function inspectService(name){
       for(const endpoint of list)dl.append(el('dd',{},`${endpoint.node_name||'Unknown node'} · process ${endpoint.pid}`));
       if(list.length<record[total])dl.append(el('dd',{},`${record[total]-list.length} more recorded endpoints`));
     }
-    $('selection').replaceChildren(el('h3',{},record.service),dl,el('p',{class:'muted note'},'Calling callback and request/reply timing are unavailable.'));
+    $('selection').replaceChildren(el('h3',{},record.service),dl,...(result.caller_callback_attribution?[]:[el('p',{class:'muted note'},'Client call sites were not recorded.')]));
   }catch(error){if(version===inspectorVersion)showError(error);}
 }
 async function inspectAction(name){
@@ -322,7 +357,7 @@ async function inspectStatistics(data){
       el('div',{class:'duration-large'},duration(data.total_ns)),el('div',{class:'muted note'},'Total callback duration'));
     const fields=[['Executions',data.count.toLocaleString()],['Node',data.node_name||'Unknown'],
       ['Share of selected callback time',`${data.share_percent.toFixed(2)}%`],
-      ...(data.callback_topic?[['Topic',data.callback_topic]]:[]),...(data.callback_service?[['Service',data.callback_service]]:[]),['Process',String(data.pid)],['Type',data.type],['Identity',data.id],
+      ...(data.callback_action?[['Action',data.callback_action],['Handler',data.action_role],['Side',data.action_side]]:[]),...(data.callback_topic?[['Topic',data.callback_topic]]:[]),...(data.callback_service?[['Service',data.callback_service]]:[]),['Process',String(data.pid)],['Type',data.type],['Identity',data.id],
       ...(data.timer_period_ns!=null?[['Recorded period',duration(data.timer_period_ns)]]:[]),
       ['Minimum',duration(data.min_ns)],['Maximum',duration(data.max_ns)],
       ['Mean',duration(data.mean_ns)],['Median',duration(data.median_ns)],

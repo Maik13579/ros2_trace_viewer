@@ -8,9 +8,9 @@ open stacks. Unmatched or context-free records are counted, never fabricated.
 from collections import Counter, defaultdict
 import json
 
-from .associations import Associations
+from .associations import Associations, ACTION_INIT
 from .models import INDICES
-from .messages import MessageProcessor
+from .messages import MessageProcessor, CALL_EVENTS
 from .action_names import index_actions, recorded_action_roles
 
 
@@ -47,7 +47,7 @@ class Processor:
         t = timestamp - self.origin
         if name in ('sched_switch', 'sched:sched_switch'):
             self._switch(event, t)
-        if not name.startswith('ros2:'):
+        if not name.startswith('ros2:') and name not in (ACTION_INIT,*CALL_EVENTS):
             return
         pid = event.get('vpid', event.get('pid'))
         if pid is None:
@@ -108,7 +108,9 @@ class Processor:
         topic = model.callback_topic(pointer)
         service = model.callback_service(pointer)
         period = model.callback_period(pointer)
-        metadata = (node, kind, symbol, initialized, topic, service, period)
+        action = model.action_callbacks.get(pointer, {})
+        metadata = (node, kind, symbol, initialized, topic, service, period,
+                    action.get('action'), action.get('role'), action.get('side'))
         key = (pid, pointer)
         previous = self.callback_ids.get(key)
         if previous is not None and previous[0] == metadata:
@@ -116,8 +118,9 @@ class Processor:
         self.callback_versions[key] += 1
         cid = f'{pid}:{int(pointer):x}:{self.callback_versions[key]}'
         self.callback_ids[key] = (metadata, cid)
-        self.db.execute('INSERT INTO callbacks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                        (cid, pid, hex(int(pointer)), node, kind, symbol, int(initialized), topic, service, period))
+        self.db.execute('INSERT INTO callbacks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                        (cid,pid,hex(int(pointer)),node,kind,symbol,int(initialized),topic,service,period,
+                         action.get('action'),action.get('role'),action.get('side')))
         return cid
 
     def _switch(self, event, t):
@@ -179,9 +182,11 @@ class Processor:
             'capabilities': {
                 'action_transport': action_count > 0,
                 'action_goal_timing': False,
+                'action_callback_timing': self.db.execute("SELECT EXISTS(SELECT 1 FROM executions e JOIN callbacks c ON c.id=e.callback_id WHERE c.type='action' AND c.initialized=1)").fetchone()[0] == 1,
                 'scheduler_events': self.counts['scheduler_switches'] > 0,
                 'cpu_execution': cpu_count > 0,
                 'publish_markers': self.counts['publishes'] > 0,
+                'call_markers': self.counts['client_calls'] > 0,
                 'cpu_reason': ('CPU lanes show only observed on-CPU intervals; gaps remain unknown.'
                     if cpu_count else 'Accurate CPU lanes need sched_switch events and ROS host '
                     'tid context in the same clock domain. Boundary CPU IDs are observations '

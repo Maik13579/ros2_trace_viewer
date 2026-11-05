@@ -4,6 +4,7 @@ from .filters import JOIN
 from .topics import callback_scope, owner_scope
 from .service_names import is_default_service
 from .action_names import accepts_resource, action_channel
+from .client_calls import call_scope
 
 
 def service_data(db, filters, trace_end, offset=0, limit=50, service=None, include_actions=False):
@@ -16,12 +17,15 @@ def service_data(db, filters, trace_end, offset=0, limit=50, service=None, inclu
         min(e.start_ns) first_ns,max(e.end_ns) last_ns FROM {JOIN}
         WHERE {where} AND c.type='service' AND c.service IS NOT NULL GROUP BY c.service''', params)}
     endpoints = {}
+    source,call_where,call_params=call_scope(filters)
+    calls={row['service']:dict(row) for row in db.execute(f'''SELECT call.service,count(*) call_count,
+        count(call.wait_end_ns) measured_wait_count FROM {source} WHERE {call_where} GROUP BY call.service''',call_params)}
     for row in db.execute('''SELECT ep.*,n.name node_name,p.name process_name FROM service_endpoints ep
         LEFT JOIN nodes n ON n.id=ep.node_id LEFT JOIN processes p ON p.pid=ep.pid
         WHERE ep.created_ns<=? ORDER BY ep.name,ep.kind,n.name,ep.id''', (filters.end,)):
         item = dict(row); item['created_ns'] = str(item['created_ns'])
         endpoints.setdefault(item['name'], []).append(item)
-    candidates = set(metrics)
+    candidates = set(metrics)|set(calls)
     strict = callback_scope(filters)
     if not strict:
         scope, values = owner_scope(filters, 'ep.pid', 'ep.node_id')
@@ -46,7 +50,9 @@ def service_data(db, filters, trace_end, offset=0, limit=50, service=None, inclu
         metric = metrics.get(name, {})
         servers = [e for e in endpoints.get(name, []) if e['kind'] == 'server']
         clients = [e for e in endpoints.get(name, []) if e['kind'] == 'client']
-        rows.append({'service': name, 'execution_count': metric.get('execution_count', 0),
+        rows.append({'service': name, 'call_count':calls.get(name,{}).get('call_count',0),
+            'measured_wait_count':calls.get(name,{}).get('measured_wait_count',0),
+            'execution_count': metric.get('execution_count', 0),
             'callback_count': metric.get('callback_count', 0),
             'total_callback_ns': metric.get('total_callback_ns', '0'),
             'mean_duration_ns': metric.get('mean_duration_ns'),
@@ -62,6 +68,6 @@ def service_data(db, filters, trace_end, offset=0, limit=50, service=None, inclu
     rows.sort(key=lambda row: (-row['execution_count'], row['service']))
     return {'items': rows[offset:offset+limit], 'total': len(rows), 'offset': offset, 'limit': limit,
             'request_response_timing': False,
-            'caller_callback_attribution': False,
+            'caller_callback_attribution': bool(calls),
             'client_association': 'Recorded client declarations; individual calls and their calling callbacks are not identified by standard Jazzy tracepoints.',
             'timing': 'Observed server callback wall-clock durations; request/reply transport timing is not recorded.'}

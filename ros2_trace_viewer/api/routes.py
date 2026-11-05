@@ -73,6 +73,12 @@ def create_router(repository):
             raise HTTPException(404, 'Receive event not found')
         return result
 
+    @router.get('/calls/{identity}')
+    def client_call(identity:int,request:Request):
+        result=repository.client_call(identity,filters(request))
+        if result is None:raise HTTPException(404,'Call event not found')
+        return result
+
     @router.get('/timers')
     def timers(request: Request, sort: str = 'total_ns', descending: bool = True,
                offset: int = Query(0,ge=0),limit: int = Query(50,ge=1,le=100)):
@@ -112,6 +118,11 @@ def create_router(repository):
         if repository.execution(execution_id) is None:
             raise HTTPException(404, 'Execution not found')
         return repository.publications(execution_id, offset, limit,filters(request))
+
+    @router.get('/executions/{execution_id}/calls')
+    def calls(execution_id:int,request:Request,offset:int=Query(0,ge=0),limit:int=Query(20,ge=1,le=100)):
+        if repository.execution(execution_id) is None:raise HTTPException(404,'Execution not found')
+        return repository.client_calls(execution_id,filters(request),offset,limit)
 
     @router.get('/executions/{execution_id}/{direction}')
     def adjacent(request: Request, execution_id: int, direction: str):

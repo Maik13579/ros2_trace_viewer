@@ -2,6 +2,7 @@
 from .action_names import action_channel, recorded_action_roles
 from .topics import topic_data
 from .services import service_data
+from .filters import JOIN
 
 
 def action_data(db, filters, trace_end):
@@ -16,6 +17,11 @@ def action_data(db, filters, trace_end):
     if not recorded or filters.none:
         return []
     actions = {}
+    def empty(base):
+        return {'action':base,'action_type':None,'recorded_roles':recorded.get(base,[]),
+            'channels':[],'goal_count':None,'goal_ids_available':False,'goal_timing_available':False,
+            'callback_count':0,'execution_count':0,'total_callback_ns':'0',
+            'callback_timing_available':False}
     # These internal queries aggregate in SQLite, not Python execution arrays.
     # The HTTP response is paginated separately after grouping the five roles.
     for transport, data in (
@@ -27,16 +33,26 @@ def action_data(db, filters, trace_end):
             if not parsed:
                 continue
             base, role = parsed
-            item = actions.setdefault(base, {'action': base, 'action_type': None,
-                'recorded_roles': recorded.get(base, []), 'channels': [],
-                'goal_count': None, 'goal_ids_available': False,
-                'goal_timing_available': False})
+            item = actions.setdefault(base, empty(base))
             item['channels'].append({'role': role, 'transport': transport, **channel})
+    where, params = filters.sql('contained')
+    owners = {}
+    for row in db.execute(f'''SELECT c.action,c.action_side,n.name node_name,
+        count(*) execution_count,count(DISTINCT c.id) callback_count,
+        sum_ns(e.duration_ns) total_callback_ns FROM {JOIN}
+        WHERE {where} AND c.type='action' GROUP BY c.action,c.action_side,c.node_id''',params):
+        item = actions.setdefault(row['action'],empty(row['action']))
+        item['execution_count'] += row['execution_count']
+        item['callback_count'] += row['callback_count']
+        item['total_callback_ns'] = str(int(item['total_callback_ns'])+int(row['total_callback_ns']))
+        item['callback_timing_available'] = True
+        owners.setdefault((row['action'],row['action_side']),set()).add(row['node_name'] or 'Unknown node')
     role_order = {role: index for index, role in enumerate(
         ('send_goal', 'cancel_goal', 'get_result', 'feedback', 'status'))}
     for item in actions.values():
         item['channels'].sort(key=lambda channel: role_order[channel['role']])
-        servers, clients = set(), set()
+        servers = set(owners.get((item['action'],'server'),()))
+        clients = set(owners.get((item['action'],'client'),()))
         first, last = [], []
         for channel in item['channels']:
             servers.update(channel.get('server_nodes', channel.get('publisher_nodes', [])))

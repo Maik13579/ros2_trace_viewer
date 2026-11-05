@@ -131,16 +131,26 @@ class Filters:
                            f'(SELECT 1 FROM publications ft WHERE ft.execution_id=e.id AND ft.topic IN ({marks})))')
             params.extend([*self.topics, *self.topics])
         if self.actions:
+            ordinary='NOT '+action_member('mixed.service','service')
+            ordinary_params=[]
+            if self.services:
+                ordinary+=f' AND mixed.service IN ({",".join("?" for _ in self.services)})'
+                ordinary_params.extend(self.services)
+            if self.exclude_default_services:
+                standard,values=default_service_predicate('mixed.service')
+                ordinary+=f' AND NOT {standard}';ordinary_params+=values
             clauses.append('(NOT EXISTS (SELECT 1 FROM execution_actions ax WHERE ax.execution_id=e.id) '
                 'OR EXISTS (SELECT 1 FROM execution_actions ax WHERE ax.execution_id=e.id '
-                f'AND ax.action IN ({",".join("?" for _ in self.actions)})))')
+                f'AND ax.action IN ({",".join("?" for _ in self.actions)})) '
+                f"OR (c.type!='action' AND EXISTS (SELECT 1 FROM client_calls mixed WHERE mixed.execution_id=e.id AND {ordinary})))")
             params.extend(self.actions)
+            params.extend(ordinary_params)
         if self.cpus:
             clauses.append('EXISTS (SELECT 1 FROM cpu_segments fs WHERE fs.execution_id=e.id '
                            f'AND fs.cpu IN ({",".join("?" for _ in self.cpus)}))')
             params.extend(self.cpus)
         if self.search:
-            clauses.append("(instr(lower(coalesce(c.service,'')||' '||coalesce(c.topic,'')||' '||coalesce(c.symbol,'')||' '||coalesce(n.name,'unknown')"
+            clauses.append("(instr(lower(coalesce(c.action,'')||' '||coalesce(c.action_role,'')||' '||coalesce(c.service,'')||' '||coalesce(c.topic,'')||' '||coalesce(c.symbol,'')||' '||coalesce(n.name,'unknown')"
                            "||' '||coalesce(p.name,'')||' '||c.pointer||' '||e.pid),lower(?))>0 OR EXISTS "
                            "(SELECT 1 FROM execution_topics st WHERE st.execution_id=e.id "
                            "AND instr(lower(st.topic),lower(?))>0))")

@@ -14,6 +14,16 @@
   <exec_depend>python3-fastapi</exec_depend>
   <exec_depend>python3-uvicorn</exec_depend>
   <test_depend>ament_index_python</test_depend>
+  <test_depend>ament_cmake</test_depend>
+  <test_depend>cmake</test_depend>
+  <test_depend>g++-static</test_depend>
+  <test_depend>pkg-config</test_depend>
+  <test_depend>liblttng-ust-dev</test_depend>
+  <test_depend>rclcpp</test_depend>
+  <test_depend>rclcpp_action</test_depend>
+  <test_depend>example_interfaces</test_depend>
+  <test_depend>std_msgs</test_depend>
+  <test_depend>tracetools</test_depend>
   <test_depend>composition</test_depend>
   <test_depend>demo_nodes_cpp</test_depend>
   <test_depend>examples_rclcpp_minimal_action_client</test_depend>

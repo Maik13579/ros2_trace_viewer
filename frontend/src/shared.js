@@ -79,12 +79,13 @@ export function canvasSize(canvas, width, height) {
 
 export function callbackLabel(record) {
   const node=record.node_name||'Unknown node';
-  const endpoint=record.callback_topic||record.callback_service;
+  const endpoint=record.callback_action||record.callback_topic||record.callback_service;
   return endpoint?`${node} · ${endpoint}`:node;
 }
 
 export function callbackType(record){
   const type=record.callback_type||record.type||'unknown';
+  if(type==='action'&&record.action_role)return `Action · ${record.action_role.replace(/_/g,' ').replace(/\b\w/g,char=>char.toUpperCase())}`;
   return type[0].toUpperCase()+type.slice(1);
 }
 

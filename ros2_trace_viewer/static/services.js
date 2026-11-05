@@ -25,7 +25,7 @@ export class Services {
           this.onSelect(record.service);
         }},record.service);
         row.dataset.service=record.service;row.classList.toggle('selected',this.selected===record.service);
-        row.append(el('td',{},button),el('td',{},record.execution_count.toLocaleString()),
+        row.append(el('td',{},button),el('td',{},record.call_count.toLocaleString()),el('td',{},record.execution_count.toLocaleString()),
           el('td',{},record.mean_duration_ns==null?'—':duration(record.mean_duration_ns)),
           el('td',{},duration(record.total_callback_ns)));
         for(const key of ['server_nodes','client_nodes']){
@@ -34,7 +34,7 @@ export class Services {
         }
         body.append(row);
       }
-      if(!data.items.length)body.append(el('tr',{},el('td',{colspan:6},'No services in this selection.')));
+      if(!data.items.length)body.append(el('tr',{},el('td',{colspan:7},'No services in this selection.')));
       $('services-page').textContent=`${data.total?this.offset+1:0}–${Math.min(this.offset+this.limit,data.total)} / ${data.total}`;
       $('services-prev').disabled=this.offset===0;
       $('services-next').disabled=this.offset+this.limit>=data.total;

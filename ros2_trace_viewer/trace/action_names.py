@@ -33,6 +33,8 @@ def recorded_action_roles(db, end=None):
         if parsed:
             base, role = parsed
             actions.setdefault(base, set()).add(role)
+    for row in db.execute('SELECT DISTINCT action FROM callbacks WHERE action IS NOT NULL'):
+        actions.setdefault(row[0],set())
     return {base: sorted(roles) for base, roles in actions.items()}
 
 
@@ -51,6 +53,12 @@ def index_actions(db):
     db.execute('''INSERT OR IGNORE INTO execution_actions SELECT e.id,ac.action
         FROM executions e JOIN callbacks c ON c.id=e.callback_id JOIN action_channels ac
         ON ac.transport='service' AND ac.name=c.service WHERE c.type='service' ''')
+    db.execute('''INSERT OR IGNORE INTO execution_actions SELECT e.id,c.action
+        FROM executions e JOIN callbacks c ON c.id=e.callback_id
+        WHERE c.type='action' AND c.action IS NOT NULL''')
+    db.execute('''INSERT OR IGNORE INTO execution_actions
+        SELECT call.execution_id,ac.action FROM client_calls call JOIN action_channels ac
+        ON ac.transport='service' AND ac.name=call.service WHERE call.execution_id IS NOT NULL''')
 
 
 def action_member(column, transport):
