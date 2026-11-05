@@ -227,10 +227,10 @@ export class Timeline {
         if(time<segmentStart||time>segmentEnd||time<this.start||time>this.start+this.span)continue;
         const py=Math.max(rect.y,Math.min(rect.y+rect.height,(time-this.start)/this.span*h));
         ctx.save();ctx.strokeStyle=state.selectedPublish===publication.id?'#ffbd58':'#f5f9ff';ctx.lineWidth=2;
-        ctx.beginPath();ctx.moveTo(rect.x+2,py);ctx.lineTo(rect.x+rect.width-2,py);ctx.stroke();
-        ctx.fillStyle=ctx.strokeStyle;ctx.fillRect(rect.x+rect.width-3,py-2,3,4);
+        ctx.beginPath();ctx.moveTo(rect.x+2,py);ctx.lineTo(rect.x+rect.width+10,py);ctx.stroke();
+        ctx.fillStyle=ctx.strokeStyle;ctx.fillRect(rect.x+rect.width+8,py-2,3,4);
         ctx.restore();
-        publishHits.push({x:rect.x,y:py-3,width:rect.width,height:6,record,publication});
+        publishHits.push({x:rect.x,y:py-3,width:rect.width+12,height:6,record,publication});
       }
     }
     const callHits=[];
@@ -243,9 +243,9 @@ export class Timeline {
           const bottom=Math.min(rect.y+rect.height,(seconds(call.wait_end_ns)-this.start)/this.span*h);
           ctx.globalAlpha=.35;ctx.fillRect(x-5,y,5,Math.max(1,bottom-y));ctx.globalAlpha=1;
         }
-        if(rect.height>=12){ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(rect.x+2,y);ctx.lineTo(x,y);ctx.stroke();}
-        ctx.beginPath();ctx.moveTo(x+1,y-4);ctx.lineTo(x+7,y);ctx.lineTo(x+1,y+4);ctx.closePath();ctx.fill();ctx.restore();
-        callHits.push({x:x-6,y:y-5,width:16,height:10,record:rect.record,call});
+        if(rect.height>=12){ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(rect.x+2,y);ctx.lineTo(x+4,y);ctx.stroke();}
+        ctx.beginPath();ctx.moveTo(x+4,y-4);ctx.lineTo(x+10,y);ctx.lineTo(x+4,y+4);ctx.closePath();ctx.fill();ctx.restore();
+        callHits.push({x:x-6,y:y-5,width:18,height:10,record:rect.record,call});
       }
     }
     // Publish observations live in the topic gutter, separate from subscription bars.
