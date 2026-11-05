@@ -1,9 +1,10 @@
 """FastAPI serves packaged assets and a read-only trace repository."""
 from pathlib import Path
+import hashlib
 
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api.routes import create_router
@@ -18,6 +19,15 @@ def create_app(database):
     app = FastAPI(title='ROS 2 Trace Viewer', docs_url=None, redoc_url=None)
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.include_router(create_router(Repository(database)))
+    # Version the entire module directory, including relative JS imports, so a
+    # browser cannot combine an older shared module with a newer entry point.
+    assets = hashlib.sha256()
+    for path in sorted(STATIC.iterdir()):
+        if path.is_file():
+            assets.update(path.name.encode())
+            assets.update(path.read_bytes())
+    asset_path = '/assets/' + assets.hexdigest()[:16]
+    index_html = (STATIC / 'index.html').read_text().replace('/static/',asset_path+'/')
 
     @app.middleware('http')
     async def headers(request, call_next):
@@ -31,7 +41,8 @@ def create_app(database):
 
     @app.get('/')
     def index():
-        return FileResponse(STATIC / 'index.html')
+        return HTMLResponse(index_html)
 
+    app.mount(asset_path,StaticFiles(directory=STATIC),name='versioned_assets')
     app.mount('/static', StaticFiles(directory=STATIC), name='static')
     return app

@@ -106,7 +106,8 @@ class Processor:
         initialized = pointer in model.references or pointer in model.symbols
         topic = model.callback_topic(pointer)
         service = model.callback_service(pointer)
-        metadata = (node, kind, symbol, initialized, topic, service)
+        period = model.callback_period(pointer)
+        metadata = (node, kind, symbol, initialized, topic, service, period)
         key = (pid, pointer)
         previous = self.callback_ids.get(key)
         if previous is not None and previous[0] == metadata:
@@ -114,8 +115,8 @@ class Processor:
         self.callback_versions[key] += 1
         cid = f'{pid}:{int(pointer):x}:{self.callback_versions[key]}'
         self.callback_ids[key] = (metadata, cid)
-        self.db.execute('INSERT INTO callbacks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                        (cid, pid, hex(int(pointer)), node, kind, symbol, int(initialized), topic, service))
+        self.db.execute('INSERT INTO callbacks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        (cid, pid, hex(int(pointer)), node, kind, symbol, int(initialized), topic, service, period))
         return cid
 
     def _switch(self, event, t):

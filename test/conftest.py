@@ -23,8 +23,8 @@ def node(handle=100, name='alpha', pid=1, t=0):
                  rmw_handle=handle + 1, node_name=name, namespace='/robot')
 
 
-def timer(callback=500, handle=101, owner=100, pid=1, t=0, symbol='alpha::tick()'):
-    return [event('rcl_timer_init', t, pid=pid, timer_handle=handle, period=10),
+def timer(callback=500, handle=101, owner=100, pid=1, t=0, symbol='alpha::tick()',period=10):
+    return [event('rcl_timer_init', t, pid=pid, timer_handle=handle, period=period),
             event('rclcpp_timer_link_node', t, pid=pid, timer_handle=handle, node_handle=owner),
             event('rclcpp_timer_callback_added', t, pid=pid, timer_handle=handle, callback=callback),
             event('rclcpp_callback_register', t, pid=pid, callback=callback, symbol=symbol)]

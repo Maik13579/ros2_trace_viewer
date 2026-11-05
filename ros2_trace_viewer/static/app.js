@@ -5,10 +5,12 @@ import {Statistics} from './statistics.js';
 import {BoxPlots} from './boxplots.js';
 import {Topics} from './topics.js';
 import {Services} from './services.js';
+import {Timers} from './timers.js';
 
 const timeline = new Timeline(selectExecution,selectPublication), statistics = new Statistics(inspectStatistics), tree = new FilterTree();
 const boxplots = new BoxPlots(inspectStatistics),topics=new Topics(inspectTopic);
 const services=new Services(inspectService);
+const timers=new Timers(inspectStatistics);
 let filterMode='callbacks',draftGrouping='node';
 const isDefaultService=name=>/\/(?:describe_parameters|get_parameter_types|get_parameters|list_parameters|set_parameters|set_parameters_atomically|get_type_description)$/.test(name);
 let inspectorVersion=0;
@@ -19,7 +21,7 @@ function openInspector(title){
 let previousView='timeline';
 function switchView(name){
   state.view=name;
-  for(const item of ['timeline','statistics','boxplots','topics','services','filters']){
+  for(const item of ['timeline','statistics','boxplots','topics','services','timers','filters']){
     $(`${item}-view`).hidden=item!==name;
     $(item==='filters'?'toggle-filters':`${item}-tab`).classList.toggle('active',item===name);
   }
@@ -29,6 +31,7 @@ function switchView(name){
   else if(name==='boxplots')boxplots.refresh();
   else if(name==='topics')topics.refresh();
   else if(name==='services')services.refresh();
+  else if(name==='timers')timers.refresh();
 }
 function view(name){
   if(name==='filters'){
@@ -45,6 +48,7 @@ $('statistics-tab').onclick=()=>view('statistics');
 $('boxplots-tab').onclick=()=>view('boxplots');
 $('topics-tab').onclick=()=>view('topics');
 $('services-tab').onclick=()=>view('services');
+$('timers-tab').onclick=()=>view('timers');
 for(const kind of ['topic','service']){
   $(`${kind}s-timeline`).onclick=()=>{
     state.grouping=kind;$('grouping').value=kind;timeline.laneOffset=0;view('timeline');
@@ -163,7 +167,7 @@ async function selectExecution(id){
     const details=$('selection');details.replaceChildren(el('h3',{},callbackLabel(record)),
       el('div',{class:'duration-large'},duration(record.duration_ns)),el('div',{class:'muted note'},'Wall-clock duration'));
     const dl=el('dl');
-    for(const [title,value] of [['Node',record.node_name||'Unknown'],...(record.callback_topic?[['Topic',record.callback_topic]]:[]),...(record.callback_service?[['Service',record.callback_service]]:[]),['Start',exactSeconds(record.start_ns)],['End',exactSeconds(record.end_ns)]])
+    for(const [title,value] of [['Node',record.node_name||'Unknown'],...(record.callback_topic?[['Topic',record.callback_topic]]:[]),...(record.callback_service?[['Service',record.callback_service]]:[]),...(record.timer_period_ns!=null?[['Recorded period',duration(record.timer_period_ns)]]:[]),['Start',exactSeconds(record.start_ns)],['End',exactSeconds(record.end_ns)]])
       dl.append(el('div',{},el('dt',{},title),el('dd',{},value)));
     details.append(dl,el('div',{class:'selection-actions'},
       el('button',{onclick:()=>adjacent('previous')},'‹ Previous'),el('button',{onclick:()=>adjacent('next')},'Next ›')));
@@ -283,6 +287,7 @@ async function inspectStatistics(data){
     const fields=[['Executions',data.count.toLocaleString()],['Node',data.node_name||'Unknown'],
       ['Share of selected callback time',`${data.share_percent.toFixed(2)}%`],
       ...(data.callback_topic?[['Topic',data.callback_topic]]:[]),...(data.callback_service?[['Service',data.callback_service]]:[]),['Process',String(data.pid)],['Type',data.type],['Identity',data.id],
+      ...(data.timer_period_ns!=null?[['Recorded period',duration(data.timer_period_ns)]]:[]),
       ['Minimum',duration(data.min_ns)],['Maximum',duration(data.max_ns)],
       ['Mean',duration(data.mean_ns)],['Median',duration(data.median_ns)],
       ['Standard deviation',duration(data.stddev_ns)],['P95',duration(data.p95_ns)],['P99',duration(data.p99_ns)],

@@ -12,6 +12,7 @@ from ros2_trace_viewer.server import create_app
 from ros2_trace_viewer.trace.repository import Repository
 from conftest import repository_events, event, execution
 from test_communication import service
+from test_topics import subscription
 
 
 def test_browser_interface(make_repository, tmp_path, monkeypatch):
@@ -20,9 +21,9 @@ def test_browser_interface(make_repository, tmp_path, monkeypatch):
               rmw_publisher_handle=911,topic_name='/secondary',queue_depth=10),
         *service(), *service(810,410,'/robot/ns/node/get_parameters'),
         *service(820,420,'/robot/get_parameters_extra'),
-        *service(830,430,'/other/node/get_type_description'),
+        *service(830,430,'/other/node/get_type_description'),*subscription(pid=1),
         *execution(6,9,callback=800),*execution(60,63,callback=810),
-        *execution(90,94,callback=820)]
+        *execution(85,89,callback=700),*execution(90,94,callback=820)]
     repository = make_repository(events)[0]
     dimensions = Repository.dimensions
     def without_default_metadata(self):

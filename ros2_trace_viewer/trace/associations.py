@@ -28,6 +28,7 @@ class MetadataModel:
         self.subscription_info, self.publishers, self.rmw_publishers = {}, {}, {}
         self.rmw_subscriptions, self.endpoint_versions = {}, {}
         self.service_info = {}
+        self.timer_periods = {}
 
     def add_node(self, handle, timestamp, tid, rmw_handle, name, namespace):
         version = self.node_versions.get(handle, 0) + 1
@@ -73,6 +74,7 @@ class MetadataModel:
 
     def add_timer(self, handle, timestamp, period, tid):
         self.entities[('timer', handle)] = None
+        self.timer_periods[handle] = int(period) if period >= 0 else None
 
     def add_timer_node_link(self, handle, timestamp, node):
         self.entities[('timer', handle)] = self.nodes.get(node)
@@ -102,6 +104,12 @@ class MetadataModel:
         if self.kinds.get(callback) != 'service':
             return None
         return self.service_info.get(self.references.get(callback), {}).get('name')
+
+    def callback_period(self, callback):
+        """The period observed at timer initialization, never an inferred rate."""
+        if self.kinds.get(callback) != 'timer':
+            return None
+        return self.timer_periods.get(self.references.get(callback))
 
 
 class Associations:

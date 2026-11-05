@@ -20,7 +20,7 @@ def test_installed_frontend_and_ros_entry_points():
         pytest.skip('Build and source ros2_trace_viewer to check installed assets')
     installed = list((prefix / 'lib').glob('python*/site-packages/ros2_trace_viewer/static'))
     assert len(installed) == 1
-    expected = {'index.html','style.css','app.js','shared.js','tree.js','timeline.js','statistics.js','boxplots.js','topics.js','services.js'}
+    expected = {'index.html','style.css','app.js','shared.js','tree.js','timeline.js','statistics.js','boxplots.js','topics.js','services.js','timers.js'}
     assert expected <= {p.name for p in installed[0].iterdir()}
     source = Path(__file__).resolve().parents[1] / 'ros2_trace_viewer' / 'static'
     for name in expected:

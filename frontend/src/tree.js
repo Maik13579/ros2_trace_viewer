@@ -1,4 +1,4 @@
-import {$, el, api, state, showError, callbackLabel} from './shared.js';
+import {$, el, api, state, showError, callbackLabel, callbackType} from './shared.js';
 
 /** Lazy, paged hierarchy. Exclusion filters preserve unloaded descendants. */
 export class FilterTree {
@@ -18,7 +18,7 @@ export class FilterTree {
   node(process, node) {
     return this.branch('nodes', node.id, node.name || 'Unknown node', [String(process.id)], target =>
       this.page('callbacks', {pid: process.id, node: node.id}, target, callback =>
-        this.branch('callbacks', callback.id, callbackLabel(callback),
+        this.branch('callbacks', callback.id, `${callbackLabel(callback)} · ${callbackType(callback)}`,
           [String(process.id), node.id])));
   }
   branch(kind, id, label, parents, load) {

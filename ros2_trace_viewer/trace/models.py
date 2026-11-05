@@ -9,7 +9,8 @@ PRAGMA temp_store=FILE;
 CREATE TABLE processes(pid INTEGER PRIMARY KEY, name TEXT);
 CREATE TABLE nodes(id TEXT PRIMARY KEY, pid INTEGER, name TEXT);
 CREATE TABLE callbacks(id TEXT PRIMARY KEY, pid INTEGER, pointer TEXT,
-                       node_id TEXT, type TEXT, symbol TEXT, initialized INTEGER, topic TEXT, service TEXT);
+                       node_id TEXT, type TEXT, symbol TEXT, initialized INTEGER, topic TEXT,
+                       service TEXT, timer_period_ns INTEGER);
 CREATE TABLE endpoints(id TEXT PRIMARY KEY, pid INTEGER, kind TEXT, node_id TEXT,
                        topic TEXT, handle TEXT, rmw_handle TEXT, queue_depth INTEGER,
                        created_ns INTEGER);

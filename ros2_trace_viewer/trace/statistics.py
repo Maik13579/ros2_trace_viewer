@@ -66,7 +66,8 @@ def statistics(db, filters, level='process', sort='total_ns', descending=True,
         raise ValueError('Unsupported statistics level or sort column')
     group, label = GROUPS[level]
     where, params = filters.sql('contained')
-    groups = db.execute(f'''SELECT {group} id,{label} name,e.pid,c.node_id,c.type,n.name node_name,c.topic callback_topic,c.service callback_service,
+    groups = db.execute(f'''SELECT {group} id,{label} name,e.pid,c.node_id,c.type,n.name node_name,
+        c.topic callback_topic,c.service callback_service,c.timer_period_ns,
         count(*) count,sum_ns(e.duration_ns) total_ns,
         min(e.duration_ns) min_ns,max(e.duration_ns) max_ns,avg(e.duration_ns) mean_ns
         FROM {JOIN} WHERE {where} GROUP BY {group}''', params).fetchall()
@@ -78,7 +79,15 @@ def statistics(db, filters, level='process', sort='total_ns', descending=True,
     # quantile/stddev sorting must evaluate every group before applying a page.
     expensive = sort in {'median_ns', 'stddev_ns', 'p95_ns', 'p99_ns'}
     if not expensive:
-        groups = sorted(groups, key=lambda r: int(r[sort]) if sort == 'total_ns' else r[sort], reverse=descending)
+        if sort == 'name' and level == 'callback':
+            # Sort by the node/resource label shown in callback lists; keep the
+            # original symbol in `name` for the complete metadata inspector.
+            key = lambda r: ((r['node_name'] or 'Unknown node').casefold(),
+                             (r['callback_topic'] or r['callback_service'] or '').casefold(),
+                             r['type'],r['id'])
+        else:
+            key = lambda r: int(r[sort]) if sort == 'total_ns' else r[sort]
+        groups = sorted(groups,key=key,reverse=descending)
         selected = groups[offset:offset + limit]
     else:
         selected = groups
@@ -90,6 +99,7 @@ def statistics(db, filters, level='process', sort='total_ns', descending=True,
         rows.append({'id': row['id'], 'name': row['name'], 'pid': row['pid'],
                      'node_id': row['node_id'], 'type': row['type'], 'node_name': row['node_name'],
                      'callback_topic': row['callback_topic'], 'callback_service': row['callback_service'],
+                     'timer_period_ns': str(row['timer_period_ns']) if level=='callback' and row['timer_period_ns'] is not None else None,
                      **summarize(durations, include_boxplot=include_boxplot)})
     for row in rows:
         row['share_percent'] = (int(row['total_ns']) / total_callback_ns * 100) if total_callback_ns else 0

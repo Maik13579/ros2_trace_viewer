@@ -1,5 +1,5 @@
 /** Paged callback duration distributions. Selection never changes filters. */
-import {$, el, api, state, duration, color, canvasSize, callbackLabel, debounce, showError} from './shared.js';
+import {$, el, api, state, duration, color, canvasSize, callbackLabel, callbackType, debounce, showError} from './shared.js';
 
 export class BoxPlots {
   constructor(onSelect) {
@@ -54,8 +54,9 @@ export class BoxPlots {
         const canvas = el('canvas', {role: 'img', 'aria-label':
           `${title}: ${record.count} executions, median ${duration(record.median_ns)}`});
         const row = el('div', {class: 'boxplot-row'}, el('div', {class: 'boxplot-label'},
-          button, el('small', {}, `${record.callback_topic ? 'Subscription' : record.node_name || 'Unknown node'} · n=${record.count.toLocaleString()}`)), canvas);
+          button, el('small', {class:'callback-type'},callbackType(record))), canvas);
         row.dataset.callbackId = record.id;
+        row.dataset.callbackType = record.type;
         const select = () => {
           this.selected = record.id;
           target.querySelectorAll('.boxplot-row').forEach(item => {
@@ -78,7 +79,7 @@ export class BoxPlots {
         };
         canvas.onpointerup=event=>{drag=null;if(canvas.hasPointerCapture(event.pointerId))canvas.releasePointerCapture(event.pointerId);setTimeout(()=>{dragged=false;},0);};
         const sampled = record.outliers_sampled ? ` (${record.outliers_ns.length} shown)` : '';
-        canvas.title = `Median ${duration(record.median_ns)}\nQ1–Q3 ${duration(record.q1_ns)}–${duration(record.q3_ns)}\nWhiskers ${duration(record.lower_whisker_ns)}–${duration(record.upper_whisker_ns)}\n${record.outlier_count} outliers${sampled}`;
+        canvas.title = `${record.count.toLocaleString()} executions\nMedian ${duration(record.median_ns)}\nQ1–Q3 ${duration(record.q1_ns)}–${duration(record.q3_ns)}\nWhiskers ${duration(record.lower_whisker_ns)}–${duration(record.upper_whisker_ns)}\n${record.outlier_count} outliers${sampled}`;
         row.classList.toggle('selected', record.id === this.selected);
         target.append(row);
         return {record, canvas};

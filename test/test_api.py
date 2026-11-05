@@ -1,4 +1,5 @@
 import pytest
+import re
 from fastapi.testclient import TestClient
 
 from ros2_trace_viewer.server import create_app
@@ -10,14 +11,25 @@ def client(repository):
         yield client
 
 
-@pytest.mark.parametrize('path', ['/', '/static/app.js', '/static/timeline.js',
+@pytest.mark.parametrize('path', ['/', '/static/app.js', '/static/timeline.js', '/static/timers.js',
     '/api/trace/info', '/api/dimensions', '/api/processes', '/api/nodes',
-    '/api/callbacks', '/api/timeline', '/api/statistics', '/api/charts', '/api/locate', '/api/boxplots', '/api/topics', '/api/services'])
+    '/api/callbacks', '/api/timeline', '/api/statistics', '/api/charts', '/api/locate', '/api/boxplots', '/api/topics', '/api/services', '/api/timers'])
 def test_read_endpoints(client, path):
     response = client.get(path)
     assert response.status_code == 200
     assert response.headers['x-content-type-options'] == 'nosniff'
     assert response.headers['cache-control'] == 'no-store'
+
+
+def test_module_assets_share_a_versioned_directory(client):
+    html=client.get('/').text
+    script=re.search(r'src="(/assets/[0-9a-f]{16}/app.js)"',html)
+    assert script
+    directory=script.group(1).rsplit('/',1)[0]
+    for name in ['app.js','shared.js','statistics.js','boxplots.js','timers.js','style.css']:
+        response=client.get(directory+'/'+name)
+        assert response.status_code==200
+        assert response.headers['cache-control']=='no-store'
 
 
 def test_execution_and_adjacent_endpoints(client):
@@ -44,7 +56,7 @@ def test_api_filters_and_bounds(client):
     '/api/timeline?view_start=-1', '/api/timeline?view_start=2&view_end=1',
     '/api/timeline?budget=20001', '/api/timeline?start_time=nan', '/api/statistics?sort=invalid',
     '/api/statistics?level=all', '/api/statistics?limit=9999', '/api/callbacks?offset=-1',
-    '/api/topics?limit=101', '/api/topics?offset=-1', '/api/services?limit=101', '/api/services?offset=-1', '/api/boxplots?limit=101', '/api/boxplots?offset=-1', '/api/boxplots?sort=invalid',
+    '/api/topics?limit=101', '/api/topics?offset=-1', '/api/services?limit=101', '/api/services?offset=-1', '/api/timers?limit=101', '/api/timers?offset=-1', '/api/timers?sort=invalid', '/api/boxplots?limit=101', '/api/boxplots?offset=-1', '/api/boxplots?sort=invalid',
     '/api/processes?pid=1', '/api/executions/1/bogus'])
 def test_invalid_queries_are_clear(client, url):
     response = client.get(url)

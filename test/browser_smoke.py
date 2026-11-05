@@ -71,6 +71,18 @@ def main():
         js("document.getElementById('search').value='';document.getElementById('search').dispatchEvent(new Event('input'))")
         assert js("[...document.querySelectorAll('#'+window.searchListId+' label.choice')].every(r=>!r.hidden)")
 
+    def check_callback_labels(kind):
+        selector='#stats-table tbody tr[data-callback-id]' if kind=='statistics' else '#boxplot-rows .boxplot-row'
+        route='statistics?level=callback&limit=100' if kind=='statistics' else 'boxplots?limit=100'
+        js(f"window.labelSelector='{selector}';window.callbackLabelData=null;fetch('/api/{route}').then(r=>r.json()).then(data=>window.callbackLabelData=data);")
+        wait("window.callbackLabelData!==null")
+        limit=50 if kind=='statistics' else 25
+        assert js(f"document.querySelectorAll(window.labelSelector).length===Math.min({limit},window.callbackLabelData.total_groups)")
+        assert js("[...document.querySelectorAll(window.labelSelector)].every(element=>{const row=window.callbackLabelData.rows.find(r=>r.id===element.dataset.callbackId);if(!row)return false;const endpoint=row.callback_topic||row.callback_service;const primary=(row.node_name||'Unknown node')+(endpoint?' · '+endpoint:'');return element.querySelector('button').innerText===primary&&element.querySelector('.callback-type').innerText===row.type[0].toUpperCase()+row.type.slice(1);})"), 'Each callback must show node/resource first and callback type second'
+        for kind_name in ['service','subscription','timer']:
+            if js(f"window.callbackLabelData.rows.slice(0,{limit}).some(r=>r.type==='{kind_name}')"):
+                assert js(f"[...document.querySelectorAll(window.labelSelector)].some(r=>r.dataset.callbackType==='{kind_name}')")
+
     try:
         wait("document.getElementById('trace-summary')?.title.includes('executions')")
         wait("document.getElementById('lane-head').children.length > 0")
@@ -82,12 +94,14 @@ def main():
         wait("document.querySelectorAll('#stats-table tbody tr').length > 0")
         assert js("document.getElementById('stats-table').innerText.includes('%')")
         assert js("document.querySelectorAll('#stats-table th').length===4")
+        check_callback_labels('statistics')
         view.grab().save(str(output / 'statistics.png'))
         js("document.getElementById('boxplots-tab').click()")
         wait("document.querySelectorAll('#boxplot-rows .boxplot-row').length>0")
         assert js("document.querySelectorAll('#boxplot-rows .boxplot-row').length<=25")
         assert js("document.querySelector('#boxplot-rows canvas').width>0")
         assert js("document.querySelector('#boxplot-rows canvas').title.includes('Whiskers')")
+        check_callback_labels('boxplots')
         js("document.querySelector('#boxplot-rows button').click()")
         wait("document.getElementById('selection').innerText.includes('Q1 (25%)')")
         assert js("!document.getElementById('boxplots-view').hidden"), 'Selecting a box plot must keep its view'
@@ -105,6 +119,24 @@ def main():
         view.grab().save(str(output/'boxplots_zoomed.png'))
         js("document.getElementById('boxplot-fit').click()")
         assert js("document.getElementById('boxplot-zoom-label').innerText==='100%'")
+        js("document.getElementById('timers-tab').click()")
+        wait("document.querySelector('#timers-table tbody button')!==null")
+        assert js("[...document.querySelectorAll('#timers-table tbody tr')].every(row=>row.dataset.callbackType==='timer'&&row.querySelector('.callback-type').innerText==='Timer')")
+        assert js("document.getElementById('filter-count').innerText===''")
+        js("document.querySelector('#timers-table tbody button').click()")
+        wait("document.getElementById('selection').innerText.includes('Recorded period')")
+        assert js("!document.getElementById('timers-view').hidden"), 'Selecting a timer must keep the timer list open'
+        assert js("document.getElementById('filter-count').innerText===''")
+        capture('timers.png')
+        js("document.querySelector('#selection .selection-actions button').click()")
+        wait("document.getElementById('selection').innerText.includes('Wall-clock duration')")
+        assert js("document.getElementById('selection').innerText.includes('Recorded period')")
+        js("document.getElementById('close-details').click();document.getElementById('timers-tab').click();document.getElementById('timers-sort').value='name';document.getElementById('timers-sort').dispatchEvent(new Event('change'))")
+        wait("document.getElementById('activity').innerText==='Ready'")
+        js("document.getElementById('toggle-filters').click();document.getElementById('search').value='NO_MATCH_TIMERS_81';document.getElementById('search').dispatchEvent(new Event('input'));document.getElementById('apply-filters').click()")
+        wait("document.querySelector('#timers-table tbody')?.innerText.includes('No timers')")
+        js("document.getElementById('toggle-filters').click();document.getElementById('reset-filters').click();document.getElementById('apply-filters').click()")
+        wait("document.querySelector('#timers-table tbody button')!==null")
         js("document.getElementById('topics-tab').click()")
         wait("document.querySelectorAll('#topics-table tbody button').length>0")
         js("document.querySelector('#topics-table tbody button').click()")

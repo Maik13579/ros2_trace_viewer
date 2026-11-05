@@ -73,14 +73,14 @@ export function canvasSize(canvas, width, height) {
 }
 
 export function callbackLabel(record) {
-  const symbol = record.callback_symbol || record.symbol || record.name || '';
-  const bound = symbol.match(/([A-Za-z_]\w*(?:::[A-Za-z_]\w*)+)::\*/);
-  const method = symbol.match(/([A-Za-z_]\w*(?:::[A-Za-z_]\w*)+)\(/);
-  const type = record.callback_type || record.type || 'callback';
-  if(type==='subscription')return `${record.node_name||'Unknown node'} · ${record.callback_topic||'Unknown topic'}`;
-  if(type==='service')return `${record.node_name||'Unknown node'} · ${record.callback_service||'Unknown service'}`;
-  const owner = bound ? bound[1].split('::').slice(-1)[0] : method ? method[1].split('::').slice(-2).join('::') : '';
-  return owner ? `${owner} · ${type}` : `${type[0].toUpperCase() + type.slice(1)} callback`;
+  const node=record.node_name||'Unknown node';
+  const endpoint=record.callback_topic||record.callback_service;
+  return endpoint?`${node} · ${endpoint}`:node;
+}
+
+export function callbackType(record){
+  const type=record.callback_type||record.type||'unknown';
+  return type[0].toUpperCase()+type.slice(1);
 }
 
 export const publicationLabel = record => `${record.node_name || 'Unknown node'} · ${record.topic || 'Unknown topic'}`;

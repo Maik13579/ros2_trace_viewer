@@ -1,4 +1,4 @@
-import {$, el, api, state, duration, seconds, canvasSize, showError, debounce, callbackLabel} from './shared.js';
+import {$, el, api, state, duration, seconds, canvasSize, showError, debounce, callbackLabel, callbackType} from './shared.js';
 
 const basicColumns = [
   ['name','Callback'], ['count','Executions'], ['total_ns','Total duration'], ['share_percent','Share'],
@@ -82,7 +82,10 @@ export class Statistics {
       await load();
     }}, `${level === 'callback' ? '' : '▸ '}${title}`);
     identity.append(button);
-    if (level === 'callback') identity.append(el('small', {title: data.name}, data.callback_topic ? 'Subscription' : data.node_name || 'Unknown node'));
+    if (level === 'callback'){
+      row.dataset.callbackId=data.id;row.dataset.callbackType=data.type;
+      identity.append(el('small', {class:'callback-type',title:data.name},callbackType(data)));
+    }
     row.append(identity);
     // Children retain the root denominator so all three hierarchy levels are
     // directly comparable, even when the server query is scoped to a parent.

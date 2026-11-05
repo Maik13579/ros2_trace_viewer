@@ -21,13 +21,14 @@ GROUPS = {
     'cpu': ('CAST(s.cpu AS TEXT)', "'CPU '||s.cpu"),
 }
 EXECUTION_FIELDS = '''e.*, c.pointer callback_identity,c.symbol callback_symbol,
-    c.type callback_type,c.topic callback_topic,c.service callback_service,c.node_id, n.name node_name,p.name process_name'''
+    c.type callback_type,c.topic callback_topic,c.service callback_service,c.timer_period_ns,
+    c.node_id, n.name node_name,p.name process_name'''
 
 
 def execution_dict(row):
     result = dict(row)
-    for key in ('start_ns', 'end_ns', 'duration_ns', 'segment_start_ns', 'segment_end_ns'):
-        if key in result:
+    for key in ('start_ns', 'end_ns', 'duration_ns', 'segment_start_ns', 'segment_end_ns', 'timer_period_ns'):
+        if key in result and result[key] is not None:
             result[key] = str(result[key])
     return result
 
@@ -174,6 +175,13 @@ class Repository:
         with self.connect() as db:
             filters = replace(filters, end=min(filters.end, int(self.info['duration_ns'])))
             return statistics(db, filters, level, sort, descending, offset, limit)
+
+    @lru_cache(maxsize=8)
+    def timers(self, filters, sort='total_ns', descending=True, offset=0, limit=50):
+        """Timer-only statistics while retaining every applied global filter."""
+        excluded = bool(filters.types and 'timer' not in filters.types)
+        active = replace(filters,types=('timer',),none=filters.none or excluded)
+        return self.statistics(active,'callback',sort,descending,offset,limit)
 
     @lru_cache(maxsize=8)
     def boxplots(self, filters, sort='median_ns', descending=True, offset=0, limit=25):

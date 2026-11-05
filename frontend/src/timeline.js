@@ -1,4 +1,4 @@
-import {$, el, api, state, duration, seconds, color, canvasSize, debounce, showError, callbackLabel, publicationLabel} from './shared.js';
+import {$, el, api, state, duration, seconds, color, canvasSize, debounce, showError, callbackLabel, callbackType, publicationLabel} from './shared.js';
 
 /** Small binary heap for interval partitioning, O(n log n) even under overlap. */
 class Heap {
@@ -259,7 +259,7 @@ export class Timeline {
     tooltip.hidden = !item; if (!item) return;
     const record=item.record;
     const role=record&&state.grouping==='topic'?`${record.topic_subscription?'Subscribes':''}${record.topic_subscription&&record.topic_publish_count?' · ':''}${record.topic_publish_count?`Publishes (${record.topic_publish_count})`:''} · ${record.lane}`:record?.publish_count?`${record.publish_count} publishes`:'';
-    const text=item.publication?[item.publication.count?item.publication.topic:publicationLabel(item.publication),item.publication.count?`${item.publication.count} publishes`:'Publish',`${seconds(item.publication.timestamp_ns).toFixed(9)} s`]:record?[callbackLabel(record),duration(record.duration_ns),`${record.node_name||'Unknown node'}${role?' · '+role:''}`]:[`${item.count.toLocaleString()} callbacks`,'Use + to zoom in'];
+    const text=item.publication?[item.publication.count?item.publication.topic:publicationLabel(item.publication),item.publication.count?`${item.publication.count} publishes`:'Publish',`${seconds(item.publication.timestamp_ns).toFixed(9)} s`]:record?[callbackLabel(record),duration(record.duration_ns),`${callbackType(record)}${role?' · '+role:''}`]:[`${item.count.toLocaleString()} callbacks`,'Use + to zoom in'];
     tooltip.replaceChildren(...text.map((t,index) => el(index === 2 ? 'small' : 'div', {}, t)));
     tooltip.style.left = `${Math.max(5, Math.min(window.innerWidth - 390, event.clientX + 14))}px`;
     tooltip.style.top = `${Math.min(window.innerHeight - 100, event.clientY + 15)}px`;
